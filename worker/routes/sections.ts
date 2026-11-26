@@ -110,12 +110,12 @@ export async function buildSection(env: Env, name: string, f: Filt): Promise<unk
       const W5 = (n: string, sql: (w: string) => string): [string, string, unknown[]] => { const [s, a] = q(g, sql); return [n, s, a]; };
       const base = "FROM records WHERE register='FND' AND deleted=0 AND plan_date BETWEEN ? AND ?";
       return batch(env, [
-        W5('byYear', (w) => `SELECT substr(plan_date,1,4) AS y, UPPER(COALESCE(finding_type,'')) AS t, COUNT(*) AS n, SUM(CASE WHEN ${CLOSED} THEN 1 ELSE 0 END) AS closed ${base} ${w} GROUP BY y, t ORDER BY y`),
-        W5('byExt', (w) => `SELECT COALESCE(ext_int,'(blank)') AS e, UPPER(COALESCE(finding_type,'')) AS t, COUNT(*) AS n ${base} ${w} GROUP BY e, t`),
-        W5('bySub', (w) => `SELECT COALESCE(sub_category,'(blank)') AS k, UPPER(COALESCE(finding_type,'')) AS t, COUNT(*) AS n ${base} ${w} GROUP BY k, t`),
-        W5('byProcess', (w) => `SELECT COALESCE(process,'(blank)') AS k, SUM(CASE WHEN UPPER(finding_type)='NCR' THEN 1 ELSE 0 END) AS ncr, SUM(CASE WHEN UPPER(finding_type)='OBSERVATION' THEN 1 ELSE 0 END) AS obs,
+        W5('byYear', (w) => `SELECT substr(plan_date,1,4) AS y, CASE WHEN UPPER(finding_type) IN ('NCR','CAR') THEN 'NCR' WHEN UPPER(finding_type) LIKE 'OBS%' THEN 'OBSERVATION' WHEN UPPER(finding_type) IN ('AFI','OFI') THEN 'AFI' ELSE 'OTHER' END AS t, COUNT(*) AS n, SUM(CASE WHEN ${CLOSED} THEN 1 ELSE 0 END) AS closed ${base} ${w} GROUP BY y, t ORDER BY y`),
+        W5('byExt', (w) => `SELECT COALESCE(ext_int,'(blank)') AS e, CASE WHEN UPPER(finding_type) IN ('NCR','CAR') THEN 'NCR' WHEN UPPER(finding_type) LIKE 'OBS%' THEN 'OBSERVATION' WHEN UPPER(finding_type) IN ('AFI','OFI') THEN 'AFI' ELSE 'OTHER' END AS t, COUNT(*) AS n ${base} ${w} GROUP BY e, t`),
+        W5('bySub', (w) => `SELECT COALESCE(sub_category,'(blank)') AS k, CASE WHEN UPPER(finding_type) IN ('NCR','CAR') THEN 'NCR' WHEN UPPER(finding_type) LIKE 'OBS%' THEN 'OBSERVATION' WHEN UPPER(finding_type) IN ('AFI','OFI') THEN 'AFI' ELSE 'OTHER' END AS t, COUNT(*) AS n ${base} ${w} GROUP BY k, t`),
+        W5('byProcess', (w) => `SELECT COALESCE(process,'(blank)') AS k, SUM(CASE WHEN UPPER(finding_type) IN ('NCR','CAR') THEN 1 ELSE 0 END) AS ncr, SUM(CASE WHEN UPPER(finding_type)='OBSERVATION' THEN 1 ELSE 0 END) AS obs,
           SUM(CASE WHEN UPPER(finding_type)='AFI' THEN 1 ELSE 0 END) AS afi, COUNT(*) AS n ${base} ${w} GROUP BY k ORDER BY n DESC LIMIT 20`),
-        W5('byClient', (w) => `SELECT COALESCE(client,'(blank)') AS k, COUNT(*) AS n, SUM(CASE WHEN UPPER(finding_type)='NCR' THEN 1 ELSE 0 END) AS ncr ${base} ${w} GROUP BY k ORDER BY n DESC LIMIT 12`),
+        W5('byClient', (w) => `SELECT COALESCE(client,'(blank)') AS k, COUNT(*) AS n, SUM(CASE WHEN UPPER(finding_type) IN ('NCR','CAR') THEN 1 ELSE 0 END) AS ncr ${base} ${w} GROUP BY k ORDER BY n DESC LIMIT 12`),
         W5('closeout', (w) => `SELECT substr(plan_date,1,4) AS y, ROUND(AVG(julianday(close_date) - julianday(plan_date)),1) AS days ${base} AND close_date IS NOT NULL AND close_date >= plan_date ${w} GROUP BY y ORDER BY y`),
       ]);
     }
