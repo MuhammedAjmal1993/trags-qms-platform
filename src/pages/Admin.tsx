@@ -238,10 +238,13 @@ function Settings() {
   const [logoV, setLogoV] = useState(0);
   useEffect(() => { api.get('/api/admin/settings').then(setS); }, []);
   if (!s) return <Spinner />;
-  const F = [['company_name', 'Company name', 'Trading and Agency Services Limited Company W.L.L.'], ['wrr_target', 'Weld repair rate target (fraction, e.g. 0.02)', '0.02'], ['ai_model', 'Workers AI extraction model', '@cf/meta/llama-3.3-70b-instruct-fp8-fast'], ['followup_days', 'Audit follow-up days after actual date', '30']];
+  const F = [['company_name', 'Company name', 'Trading and Agency Services Limited Company W.L.L.'], ['ai_model', 'Workers AI extraction model', '@cf/meta/llama-3.3-70b-instruct-fp8-fast'], ['followup_days', 'Audit follow-up days after actual date', '30']];
+  let tg: Record<string, number> = {};
+  try { tg = { ...TARGET_DEFAULTS, ...JSON.parse(s.kpi_targets || '{}') }; } catch { tg = { ...TARGET_DEFAULTS }; }
+  const setTarget = (k: string, pctText: string) => setS({ ...s, kpi_targets: JSON.stringify({ ...tg, [k]: Number(pctText) / 100 }) });
   const save = async () => {
     const keys = [...F.map((x) => x[0]), 'public_tagline', 'public_show_stats'];
-    await api.put('/api/admin/settings', Object.fromEntries(keys.map((k) => [k, s[k] ?? ''])));
+    await api.put('/api/admin/settings', { ...Object.fromEntries(keys.map((k) => [k, s[k] ?? ''])), kpi_targets: JSON.stringify(tg), wrr_target: String(tg.repair_rate) });
     toast('Settings saved.');
   };
   const upLogo = async (file?: File) => {
@@ -257,6 +260,13 @@ function Settings() {
         <button className="primary" style={{ marginTop: 12 }} onClick={save}>Save settings</button>
       </div>
       <div className="card">
+        <h2>KPI targets</h2>
+        <div className="muted small" style={{ marginBottom: 8 }}>Used by the dashboard scorecard, project health and the landing page meters. Enter percentages. Defaults follow the 2026 quality objectives.</div>
+        <div className="form-grid">{TARGETS.map(([k, l]) => <label key={k} className="f">{l} (%)<input type="number" step="0.1" value={+(tg[k] * 100).toFixed(2)} onChange={(e) => setTarget(k, e.target.value)} /></label>)}</div>
+        <button className="primary" style={{ marginTop: 12 }} onClick={save}>Save targets</button>
+      </div>
+      <ImportStatus />
+      <div className="card">
         <h2>Branding and public showcase page</h2>
         <div className="row" style={{ gap: 16, marginBottom: 12 }}>
           <div style={{ width: 120, height: 80, borderRadius: 12, border: '1px dashed var(--line-2)', display: 'grid', placeItems: 'center', background: '#f8fafc' }}>
@@ -271,6 +281,26 @@ function Settings() {
         <div className="muted small" style={{ marginTop: 8 }}>The public page shows only counts, current company certificates and photos marked "Show on public landing page" in the Photo Library register. No client names, finding details or QMS text are shown.</div>
         <div className="row" style={{ marginTop: 12 }}><button className="primary" onClick={save}>Save</button><a className="btn" href="/welcome" target="_blank" rel="noreferrer">Open showcase page</a><a className="btn" href="/qr">QR poster</a></div>
       </div>
+    </div>
+  );
+}
+
+const TARGET_DEFAULTS: Record<string, number> = { audit_completion: 0.9, ncr_closure: 0.9, repair_rate: 0.015, rfi_rejection: 0.02, training_completion: 0.95, customer_satisfaction: 0.95, nfi_closure: 0.9 };
+const TARGETS: [string, string][] = [['audit_completion', 'Audit completion ≥'], ['ncr_closure', 'NCR / finding closure ≥'], ['repair_rate', 'Weld repair rate ≤'], ['rfi_rejection', 'RFI rejection rate ≤'],
+  ['training_completion', 'Training completion ≥'], ['customer_satisfaction', 'Customer satisfaction ≥'], ['nfi_closure', 'NFI closure ≥']];
+
+function ImportStatus() {
+  const [st, setSt] = useState<any>(null);
+  useEffect(() => { api.get('/api/admin/import').then(setSt).catch(() => {}); }, []);
+  if (!st || !st.total) return null;
+  const done = st.done >= st.total;
+  return (
+    <div className="card">
+      <h2>Data load from TRAGS registers</h2>
+      <div className="meter" style={{ margin: '8px 0' }}><i style={{ width: `${(st.done / st.total) * 100}%`, background: 'var(--grad)' }} /></div>
+      <div className="small">{done ? 'Complete: all uploaded register data is in the platform.' : `${st.done} of ${st.total} data packs loaded. Next: ${st.next}. About ${Number(st.rowsLeft || 0).toLocaleString()} rows remain.`}</div>
+      {!done && <div className="muted small" style={{ marginTop: 6 }}>Loads automatically within the free-plan daily write allowance ({Number(st.usedToday || 0).toLocaleString()} of {Number(st.budget).toLocaleString()} used today; resets 03:00 Doha time).</div>}
+      {st.error && <div className="small" style={{ color: '#be123c', marginTop: 6 }}>Last error: {st.error}</div>}
     </div>
   );
 }

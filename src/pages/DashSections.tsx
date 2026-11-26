@@ -321,7 +321,7 @@ export function TrendTab({ f }: { f: F }) {
   const subs = [...new Set(d.bySub.map((r: any) => r.k))] as string[];
   return (
     <div className="stagger" key="fy">
-      <div className="muted small" style={{ marginBottom: 8 }}><History size={13} /> Last five calendar years ({years[0] || '–'} to {years[years.length - 1] || '–'}). Client, work order and Ext/Int filters apply; the date filter does not.</div>
+      <div className="muted small" style={{ marginBottom: 8 }}><History size={13} /> Five full years plus the current year ({years[0] || "–"} to {years[years.length - 1] || "–"}). Client, work order and Ext/Int filters apply; the date filter does not.</div>
       <div className="status-board">
         <Stat tone="red" n={<CountUp value={tot('NCR')} />} t="NCR" d="Five-year total" />
         <Stat tone="amber" n={<CountUp value={tot('OBSERVATION')} />} t="Observations" />

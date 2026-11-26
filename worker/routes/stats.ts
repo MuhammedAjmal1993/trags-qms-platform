@@ -210,7 +210,7 @@ statRoutes.get('/filters', async (c) => cached(c.env, ck(c), async () => {
 // Health of one work order from its linked records.
 async function health(env: Env, won: string) {
   const settings = Object.fromEntries((await q(env, "SELECT key, value FROM settings WHERE key LIKE 'health_%' OR key = 'wrr_target'", [])).map((r: any) => [r.key, r.value]));
-  const wrrTarget = Number(settings.wrr_target || 0.02);
+  const wrrTarget = Number(settings.wrr_target || 0.015);
   const openNcr = (await q(env, `SELECT COUNT(*) AS n FROM records WHERE register='FND' AND deleted=0 AND won=? AND UPPER(finding_type)='NCR' AND NOT (${CLOSED})`, [won]))[0].n;
   const overdue = (await q(env, `SELECT COUNT(*) AS n FROM records WHERE register='FND' AND deleted=0 AND won=? AND NOT (${CLOSED}) AND julianday('now') - julianday(plan_date) > 90`, [won]))[0].n;
   const openObs = (await q(env, `SELECT COUNT(*) AS n FROM records WHERE register='FND' AND deleted=0 AND won=? AND NOT (${CLOSED})`, [won]))[0].n;
@@ -316,7 +316,7 @@ statRoutes.get('/home', async (c) => cached(c.env, ck(c), async () => {
     S(`SELECT COUNT(*) AS n FROM submissions WHERE status='Pending'`),
   ]);
   const R = (i: number) => res[i].results as any[];
-  const target = Number(R(13)[0]?.value || 0.02);
+  const target = Number(R(13)[0]?.value || 0.015);
   const f = new Map(R(9).map((x) => [x.won, x])), w = new Map(R(10).map((x) => [x.won, x])), r = new Map(R(11).map((x) => [x.won, x]));
   const projects = R(12).map((p) => {
     const a = f.get(p.won) || { open: 0, ncr: 0, over90: 0 }, b = w.get(p.won), d = r.get(p.won);
