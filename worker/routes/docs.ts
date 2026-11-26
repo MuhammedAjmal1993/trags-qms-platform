@@ -23,6 +23,7 @@ docRoutes.get('/files', async (c) => {
   let ok = false;
   if (area === 'documents' || area === 'templates' || area === 'plans' || area === 'signoffs') ok = can(user, 'documents', 'view') || can(user, 'plans', 'view');
   else if (area === 'uploads') ok = can(user, 'ingest', 'view');
+  else if (area === 'submissions' || area === 'public') ok = true;
   else if (area === 'attachments') ok = can(user, MODULE_OF_REGISTER[key.split('/')[1]] || 'findings', 'view');
   if (!ok) throw new HttpError(403, 'No access to this file.');
   const obj = await getFile(c.env, key);

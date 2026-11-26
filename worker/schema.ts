@@ -162,4 +162,21 @@ export const MIGRATIONS: { id: number; sql: string[] }[] = [
       `CREATE INDEX IF NOT EXISTS ix_att_reg ON attachments(register, mime)`,
     ],
   },
+  {
+    id: 3,
+    sql: [
+      `CREATE TABLE IF NOT EXISTS submissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ref TEXT, kind TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'Pending',
+        data TEXT NOT NULL DEFAULT '{}', photos TEXT NOT NULL DEFAULT '[]', ip TEXT,
+        reviewed_by INTEGER, reviewed_at TEXT, record_id INTEGER, review_note TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`,
+      `CREATE INDEX IF NOT EXISTS ix_sub_status ON submissions(status)`,
+      `CREATE TABLE IF NOT EXISTS rate_limits (k TEXT PRIMARY KEY, n INTEGER NOT NULL, window TEXT NOT NULL)`,
+      `CREATE TABLE IF NOT EXISTS api_cache (k TEXT PRIMARY KEY, v INTEGER NOT NULL, body TEXT NOT NULL, at TEXT NOT NULL DEFAULT (datetime('now')))`,
+      `INSERT OR IGNORE INTO settings (key, value) VALUES ('data_version', '1')`,
+      `INSERT OR IGNORE INTO settings (key, value) VALUES ('public_tagline', 'Quality you can verify, on every work order.')`,
+      `INSERT OR IGNORE INTO settings (key, value) VALUES ('public_show_stats', 'Yes')`,
+    ],
+  },
 ];

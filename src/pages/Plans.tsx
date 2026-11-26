@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, fileUrl, qs } from '../api';
 import { useApp } from '../ctx';
-import { Drawer, Spinner, statusChip, Modal, pct } from '../components/ui';
+import { Drawer, Spinner, statusChip, Modal, pct, PageSkeleton } from '../components/ui';
 import { MONTHS } from '../../shared/registers';
 import { fmtDate } from '../../shared/logic';
 import { objectivesDocx } from '../lib/report';
@@ -61,7 +61,7 @@ function Objectives() {
     load();
   };
 
-  if (!d) return <Spinner />;
+  if (!d) return <PageSkeleton />;
   return (
     <div>
       <div className="row" style={{ marginBottom: 10 }}>

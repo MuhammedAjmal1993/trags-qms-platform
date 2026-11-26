@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, fileUrl } from '../api';
 import { useApp } from '../ctx';
-import { Drawer, FileDrop, Spinner, statusChip } from '../components/ui';
+import { Drawer, FileDrop, Spinner, statusChip, PageSkeleton } from '../components/ui';
 import { fmtDate } from '../../shared/logic';
 import { exportTable } from '../lib/excel';
 
@@ -25,7 +25,7 @@ export default function Documents() {
   const view = useMemo(() => (docs || []).filter((d) => (tab === 'cert' ? /certificate/i.test(d.category) : String(d.level) === tab && !/certificate/i.test(d.category)) && (!q || JSON.stringify(d).toLowerCase().includes(q.toLowerCase()))), [docs, tab, q]);
   const soon = (d: any) => d.expiry_date && d.expiry_date < new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
 
-  if (!docs) return <Spinner />;
+  if (!docs) return <PageSkeleton />;
   return (
     <div>
       <div className="page-head">

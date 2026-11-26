@@ -3,6 +3,7 @@ import { api, fileUrl } from '../api';
 import { useApp } from '../ctx';
 import { Drawer, Spinner, Confirm } from '../components/ui';
 import { MODULES, ACTIONS, type RegisterConfig, type Column } from '../../shared/registers';
+import { forgetLogo } from '../components/Brand';
 import { listPdfFields, F271_DEFAULT_MAP, type FieldMapEntry } from '../lib/forms';
 
 const TABS = ['Users', 'Roles & permissions', 'Registers', 'Numbering', 'Form templates', 'Settings', 'Audit log'] as const;
@@ -234,13 +235,42 @@ function Templates() {
 function Settings() {
   const { toast } = useApp();
   const [s, setS] = useState<any>(null);
+  const [logoV, setLogoV] = useState(0);
   useEffect(() => { api.get('/api/admin/settings').then(setS); }, []);
   if (!s) return <Spinner />;
   const F = [['company_name', 'Company name', 'Trading and Agency Services Limited Company W.L.L.'], ['wrr_target', 'Weld repair rate target (fraction, e.g. 0.02)', '0.02'], ['ai_model', 'Workers AI extraction model', '@cf/meta/llama-3.3-70b-instruct-fp8-fast'], ['followup_days', 'Audit follow-up days after actual date', '30']];
+  const save = async () => {
+    const keys = [...F.map((x) => x[0]), 'public_tagline', 'public_show_stats'];
+    await api.put('/api/admin/settings', Object.fromEntries(keys.map((k) => [k, s[k] ?? ''])));
+    toast('Settings saved.');
+  };
+  const upLogo = async (file?: File) => {
+    if (!file) return;
+    const fd = new FormData(); fd.append('file', file);
+    try { await api.form('/api/admin/logo', fd); forgetLogo(); toast('Logo updated.'); setLogoV(Date.now()); } catch (e: any) { toast(e.message, 'err'); }
+  };
   return (
-    <div className="card" style={{ maxWidth: 700 }}>
-      <div className="form-grid">{F.map(([k, l, ph]) => <label key={k} className="f full">{l}<input value={s[k] ?? ''} placeholder={ph} onChange={(e) => setS({ ...s, [k]: e.target.value })} /></label>)}</div>
-      <button className="primary" style={{ marginTop: 10 }} onClick={async () => { await api.put('/api/admin/settings', s); toast('Settings saved.'); }}>Save settings</button>
+    <div className="cards wide" style={{ alignItems: 'start' }}>
+      <div className="card">
+        <h2>General</h2>
+        <div className="form-grid">{F.map(([k, l, ph]) => <label key={k} className="f full">{l}<input value={s[k] ?? ''} placeholder={ph} onChange={(e) => setS({ ...s, [k]: e.target.value })} /></label>)}</div>
+        <button className="primary" style={{ marginTop: 12 }} onClick={save}>Save settings</button>
+      </div>
+      <div className="card">
+        <h2>Branding and public showcase page</h2>
+        <div className="row" style={{ gap: 16, marginBottom: 12 }}>
+          <div style={{ width: 120, height: 80, borderRadius: 12, border: '1px dashed var(--line-2)', display: 'grid', placeItems: 'center', background: '#f8fafc' }}>
+            <img key={logoV} src={`/api/public/logo?v=${logoV}`} alt="" style={{ maxWidth: 110, maxHeight: 70 }} onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />
+          </div>
+          <label className="btn">Upload logo (PNG, SVG, JPG ≤ 2 MB)<input type="file" hidden accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={(e) => upLogo(e.target.files?.[0])} /></label>
+        </div>
+        <div className="form-grid">
+          <label className="f full">Landing page headline<input value={s.public_tagline ?? ''} onChange={(e) => setS({ ...s, public_tagline: e.target.value })} placeholder="Quality you can verify, on every work order." /></label>
+          <label className="f">Show department counters on the public page<select value={s.public_show_stats ?? 'Yes'} onChange={(e) => setS({ ...s, public_show_stats: e.target.value })}><option>Yes</option><option>No</option></select></label>
+        </div>
+        <div className="muted small" style={{ marginTop: 8 }}>The public page shows only counts, current company certificates and photos marked "Show on public landing page" in the Photo Library register. No client names, finding details or QMS text are shown.</div>
+        <div className="row" style={{ marginTop: 12 }}><button className="primary" onClick={save}>Save</button><a className="btn" href="/welcome" target="_blank" rel="noreferrer">Open showcase page</a><a className="btn" href="/qr">QR poster</a></div>
+      </div>
     </div>
   );
 }

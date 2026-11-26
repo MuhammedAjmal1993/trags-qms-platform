@@ -1,61 +1,70 @@
 // Side ribbon structure: Home, Insights, six hubs, data and admin.
-export interface NavItem { label: string; to: string; module: string; register?: string }
-export interface NavGroup { id: string; label: string; icon: string; items: NavItem[] }
+import type { LucideIcon } from 'lucide-react';
+import {
+  LayoutDashboard, Lightbulb, FileBarChart, Briefcase, ClipboardCheck, AlertTriangle, Wrench, MessageSquareHeart, BookOpen,
+  Search, FileCheck2, FileSearch, HardHat, Flame, BadgeCheck, Users, Network, GraduationCap, Library, IdCard, FolderOpen, Award,
+  Target, RefreshCw, Sparkles, Presentation, ListChecks, Rocket, CalendarDays, Trophy, Star, Images, Upload, Inbox, QrCode, LayoutGrid,
+} from 'lucide-react';
 
-const r = (code: string, label: string, module: string): NavItem => ({ label, to: `/r/${code}`, module, register: code });
+export interface NavItem { label: string; to: string; module: string; register?: string; icon: LucideIcon; badge?: string }
+export interface NavGroup { id: string; label: string; color: string; items: NavItem[] }
+
+const r = (code: string, label: string, module: string, icon: LucideIcon): NavItem => ({ label, to: `/r/${code}`, module, register: code, icon });
 
 export const NAV: NavGroup[] = [
-  { id: 'insight', label: 'Monitor & Insights', icon: '◎', items: [
-    { label: 'QA/QC Dashboard', to: '/dashboard', module: 'dashboard' },
-    { label: 'Insights & Patterns', to: '/insights', module: 'insights' },
-    { label: 'Reports & Exports', to: '/reports', module: 'reports' },
+  { id: 'insight', label: 'Monitor & Insights', color: '#60a5fa', items: [
+    { label: 'Master Dashboard', to: '/dashboard', module: 'dashboard', icon: LayoutDashboard },
+    { label: 'Insights & Patterns', to: '/insights', module: 'insights', icon: Lightbulb },
+    { label: 'Reports & Exports', to: '/reports', module: 'reports', icon: FileBarChart },
   ] },
-  { id: 'h1', label: '1 · Projects & Work Orders', icon: '▣', items: [
-    { label: 'Projects & Health', to: '/wo', module: 'workorders' },
+  { id: 'h1', label: 'Projects & Work Orders', color: '#2dd4bf', items: [
+    { label: 'Projects & Health', to: '/wo', module: 'workorders', icon: Briefcase },
   ] },
-  { id: 'h2', label: '2 · Audit & Findings', icon: '✓', items: [
-    { label: 'Hub overview', to: '/hub/h2', module: 'audits' },
-    r('AUD', 'Audit Plan', 'audits'),
-    r('FND', 'Findings (NCR / CAR / OBS)', 'findings'),
-    { label: 'Disposition & RCA Tracker', to: '/disposition', module: 'findings' },
-    r('CFB', 'Customer Feedback', 'feedback'),
-    r('LLR', 'Lessons Learnt', 'findings'),
+  { id: 'h2', label: 'Audit & Findings', color: '#fb7185', items: [
+    { label: 'Hub overview', to: '/hub/h2', module: 'audits', icon: LayoutGrid },
+    r('AUD', 'Audit Plan', 'audits', ClipboardCheck),
+    r('FND', 'Findings (NCR / CAR / OBS)', 'findings', AlertTriangle),
+    { label: 'Review queue (raised)', to: '/review', module: 'findings', icon: Inbox, badge: 'review' },
+    { label: 'Disposition & RCA', to: '/disposition', module: 'findings', icon: Wrench },
+    r('CFB', 'Customer Feedback', 'feedback', MessageSquareHeart),
+    r('LLR', 'Lessons Learnt', 'findings', BookOpen),
   ] },
-  { id: 'h3', label: '3 · Inspection & Welding', icon: '⚙', items: [
-    { label: 'Hub overview', to: '/hub/h3', module: 'inspections' },
-    r('SRC', 'Source Inspection', 'inspections'),
-    r('NFI', 'NFI Register', 'inspections'),
-    r('RFI', 'RFI Register', 'inspections'),
-    r('WLD', 'Welders', 'welding'),
-    r('WRR', 'Weld Repair Monitoring', 'welding'),
-    r('ASM', 'ASME Capabilities', 'inspections'),
+  { id: 'h3', label: 'Inspection & Welding', color: '#fbbf24', items: [
+    { label: 'Hub overview', to: '/hub/h3', module: 'inspections', icon: LayoutGrid },
+    r('SRC', 'Source Inspection', 'inspections', Search),
+    r('NFI', 'NFI Register', 'inspections', FileSearch),
+    r('RFI', 'RFI Register', 'inspections', FileCheck2),
+    r('WLD', 'Welders', 'welding', HardHat),
+    r('WRR', 'Weld Repair Monitoring', 'welding', Flame),
+    r('ASM', 'ASME Capabilities', 'inspections', BadgeCheck),
   ] },
-  { id: 'h4', label: '4 · People & Training', icon: '◉', items: [
-    { label: 'Hub overview', to: '/hub/h4', module: 'people' },
-    r('PPL', 'QA/QC Resource List', 'people'),
-    { label: 'Organization Chart', to: '/orgchart', module: 'people' },
-    r('TRN', 'Training Plan & Records', 'training'),
-    { label: 'Training Library', to: '/library', module: 'training' },
-    r('PCR', 'Personnel Certifications', 'people'),
+  { id: 'h4', label: 'People & Training', color: '#a78bfa', items: [
+    { label: 'Hub overview', to: '/hub/h4', module: 'people', icon: LayoutGrid },
+    r('PPL', 'QA/QC Resource List', 'people', Users),
+    { label: 'Organization Chart', to: '/orgchart', module: 'people', icon: Network },
+    r('TRN', 'Training Plan & Records', 'training', GraduationCap),
+    { label: 'Training Library', to: '/library', module: 'training', icon: Library },
+    r('PCR', 'Personnel Certifications', 'people', IdCard),
   ] },
-  { id: 'h5', label: '5 · QMS Documents & Plans', icon: '▤', items: [
-    { label: 'Document Library', to: '/documents', module: 'documents' },
-    { label: 'Certificates & Expiry', to: '/documents?tab=cert', module: 'documents' },
-    { label: 'Plans & Objectives', to: '/plans', module: 'plans' },
-    r('ITT', 'ISO 9001:2026 Transition', 'plans'),
+  { id: 'h5', label: 'QMS Documents & Plans', color: '#34d399', items: [
+    { label: 'Document Library', to: '/documents', module: 'documents', icon: FolderOpen },
+    { label: 'Certificates & Expiry', to: '/documents?tab=cert', module: 'documents', icon: Award },
+    { label: 'Plans & Objectives', to: '/plans', module: 'plans', icon: Target },
+    r('ITT', 'ISO 9001:2026 Transition', 'plans', RefreshCw),
   ] },
-  { id: 'h6', label: '6 · Quality Culture & Showcase', icon: '★', items: [
-    { label: 'Department Showcase', to: '/showcase', module: 'culture' },
-    r('MRM', 'Management Review (MRM)', 'culture'),
-    r('MRA', 'MRM Action Tracker', 'culture'),
-    r('INI', 'Initiatives & Records', 'culture'),
-    r('EVT', 'Quality Events', 'culture'),
-    r('AWD', 'Recognition & Awards', 'culture'),
-    r('SPJ', 'Special Jobs', 'culture'),
-    { label: 'Photo Library', to: '/photos', module: 'culture' },
+  { id: 'h6', label: 'Quality Culture & Showcase', color: '#f472b6', items: [
+    { label: 'Department Showcase', to: '/showcase', module: 'culture', icon: Sparkles },
+    r('MRM', 'Management Review (MRM)', 'culture', Presentation),
+    r('MRA', 'MRM Action Tracker', 'culture', ListChecks),
+    r('INI', 'Initiatives & Records', 'culture', Rocket),
+    r('EVT', 'Quality Events', 'culture', CalendarDays),
+    r('AWD', 'Recognition & Awards', 'culture', Trophy),
+    r('SPJ', 'Special Jobs', 'culture', Star),
+    { label: 'Photo Library', to: '/photos', module: 'culture', icon: Images },
   ] },
-  { id: 'data', label: 'Data', icon: '⇪', items: [
-    { label: 'Upload Center', to: '/ingest', module: 'ingest' },
+  { id: 'data', label: 'Data Input', color: '#93c5fd', items: [
+    { label: 'Upload Center', to: '/ingest', module: 'ingest', icon: Upload },
+    { label: 'Quick-raise QR codes', to: '/qr', module: 'findings', icon: QrCode },
   ] },
 ];
 

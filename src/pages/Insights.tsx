@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, qs } from '../api';
+import { qs, useSWR } from '../api';
 import { useApp } from '../ctx';
-import { Spinner, Drawer } from '../components/ui';
+import { Spinner, Drawer, PageSkeleton } from '../components/ui';
 import { ChartCard, BarChart, LineChart, TYPE_COLORS, snapshot, exportChartsToPptx } from '../components/Charts';
 import { QSP, DEFAULT_MAP, mapProcess, tokens } from '../lib/qms';
 import { MONTHS } from '../../shared/registers';
@@ -18,16 +18,16 @@ export default function Insights() {
   const { toast } = useApp();
   const y = new Date().getFullYear();
   const [p, setP] = useState({ from: `${y - 2}-01-01`, to: `${y}-12-31`, ext: '', client: '' });
-  const [d, setD] = useState<any>(null);
+  const { data: d, error } = useSWR<any>(`/api/stats/insights${qs({ from: p.from, to: p.to })}`);
   const [tab, setTab] = useState<'overview' | 'functions' | 'recurring' | 'interface'>('overview');
   const [drill, setDrill] = useState<{ title: string; rows: F[] } | null>(null);
   const root = useRef<HTMLDivElement>(null);
-  useEffect(() => { setD(null); api.get(`/api/stats/insights${qs({ from: p.from, to: p.to })}`).then(setD).catch((e) => toast(e.message, 'err')); }, [p.from, p.to, toast]);
+  useEffect(() => { if (error) toast(error, 'err'); }, [error, toast]);
 
   const rules: [string, string][] = d?.qmsMap || DEFAULT_MAP;
   const F: F[] = useMemo(() => (d?.findings || []).filter((f: F) => (!p.ext || f.e === p.ext) && (!p.client || f.cl === p.client)), [d, p.ext, p.client]);
   const A = useMemo(() => analyse(F, d, rules), [F, d, rules]);
-  if (!d) return <Spinner />;
+  if (!d) return <PageSkeleton />;
   const clients = [...new Set((d.findings as F[]).map((f) => f.cl).filter(Boolean))].sort();
   const open = (title: string, rows: F[]) => setDrill({ title, rows });
 

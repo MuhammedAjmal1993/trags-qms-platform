@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api';
+import { Upload, AlertTriangle, Eye, FileBarChart, FileSpreadsheet, ClipboardX, Clock4, Inbox, GraduationCap, ListChecks, Award, ArrowRight, LayoutDashboard, CalendarClock } from 'lucide-react';
+import { api, useSWR } from '../api';
 import { useApp } from '../ctx';
-import { Spinner, statusChip, pct } from '../components/ui';
+import { statusChip, pct, Stat, CountUp, PageSkeleton } from '../components/ui';
 import { fmtDate } from '../../shared/logic';
 import { exportRegister } from '../lib/excel';
 import type { RegisterConfig } from '../../shared/registers';
@@ -12,9 +13,8 @@ const days = (d: string) => Math.round((new Date(d + 'T00:00:00Z').getTime() - D
 export default function Home() {
   const { user, can, registers, toast } = useApp();
   const nav = useNavigate();
-  const [d, setD] = useState<any>(null);
+  const { data: d, error } = useSWR<any>('/api/stats/home');
   const [exp, setExp] = useState('');
-  useEffect(() => { api.get('/api/stats/home').then(setD).catch((e) => toast(e.message, 'err')); }, [toast]);
   const doExport = async (code: string) => {
     const cfg = registers.find((r) => r.code === code) as RegisterConfig;
     if (!cfg) return;
@@ -22,34 +22,49 @@ export default function Home() {
     await exportRegister(cfg, rows.rows);
     setExp('');
   };
-  if (!d) return <Spinner />;
+  if (!d) return error ? <div className="card empty red">{error}</div> : <PageSkeleton />;
   const P = d.pending;
   const hour = new Date().getHours();
+  const today = new Date();
+  const expired = d.upcoming.expiries.filter((x: any) => x.expiry < today.toISOString().slice(0, 10)).length;
+  const go = (to: string) => () => nav(to);
+  const bg = (I: any) => <I className="bg" size={74} />;
   return (
-    <div>
-      <div className="page-head">
-        <div><h1>{hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'}, {user?.name?.split(' ')[0]}</h1><div className="muted small">TRAGS QA/QC · what needs attention today</div></div>
+    <div className="page">
+      <div className="hero">
+        <div className="hero-k">{today.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
+        <h1>{hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'}, {user?.name?.split(' ')[0]}</h1>
+        <p>Here is what needs attention across TRAGS QA/QC today.</p>
+        <div className="row" style={{ marginTop: 14 }}>
+          {can('dashboard') && <button className="primary" onClick={go('/dashboard')}><LayoutDashboard size={15} /> Master dashboard</button>}
+          {can('insights') && <button className="btn glass" onClick={go('/insights')}>Insights & patterns <ArrowRight size={15} /></button>}
+        </div>
+        <svg className="hero-art hide-sm" width="220" height="120" viewBox="0 0 220 120" aria-hidden>
+          {[30, 52, 40, 70, 58, 86, 74, 100].map((h, i) => <rect key={i} x={10 + i * 26} y={115 - h} width="16" height={h} rx="5" fill={i % 2 ? 'rgba(167,139,250,.75)' : 'rgba(96,165,250,.75)'} style={{ animation: `fadeUp .6s ease ${i * 70}ms both` }} />)}
+        </svg>
       </div>
 
-      <div className="quick">
-        {can('ingest', 'create') && <button className="qbtn" onClick={() => nav('/ingest')}><b>⇪</b>Upload</button>}
-        {can('findings', 'create') && <button className="qbtn" onClick={() => nav('/r/FND?new=NCR')}><b>＋</b>New NCR</button>}
-        {can('findings', 'create') && <button className="qbtn" onClick={() => nav('/r/FND?new=OBSERVATION')}><b>＋</b>New Observation</button>}
-        {can('reports', 'view') && <button className="qbtn" onClick={() => nav('/reports')}><b>▤</b>Monthly Report</button>}
-        <div className="qbtn sel"><b>⤓</b><select value={exp} onChange={(e) => { setExp(e.target.value); if (e.target.value) doExport(e.target.value); }}><option value="">Export Excel…</option>{registers.map((r) => <option key={r.code} value={r.code}>{r.name}</option>)}</select></div>
+      <div className="section-title" style={{ marginTop: 6 }}><h2><Clock4 size={17} color="#e11d48" /> Pending and overdue</h2></div>
+      <div className="status-board stagger">
+        <Stat tone={P.audits.length ? 'red' : 'green'} pulse={!!P.audits.length} n={<CountUp value={P.audits.length} />} t="Audits overdue" d="Planned date passed, not conducted" icon={bg(ClipboardX)} onClick={go('/r/AUD')} />
+        <Stat tone={P.findings?.ncr ? 'amber' : 'green'} n={<CountUp value={P.findings?.n ?? 0} />} t="Open findings" d={`${P.findings?.ncr ?? 0} NCR open`} icon={bg(AlertTriangle)} onClick={go('/disposition')} />
+        <Stat tone={P.findings?.over90 ? 'red' : 'green'} pulse={!!P.findings?.over90} n={<CountUp value={P.findings?.over90 ?? 0} />} t="Findings over 90 days" d="CA implementation limit" icon={bg(Clock4)} onClick={go('/disposition')} />
+        {can('findings') && <Stat tone={d.review ? 'violet' : 'grey'} pulse={!!d.review} n={<CountUp value={d.review || 0} />} t="Raised, awaiting review" d="Quick-form submissions" icon={bg(Inbox)} onClick={go('/review')} />}
+        <Stat tone={P.trainingsCount ? 'amber' : 'green'} n={<CountUp value={P.trainingsCount} />} t="Trainings pending" d="Planned date reached" icon={bg(GraduationCap)} onClick={go('/r/TRN')} />
+        <Stat tone={P.mrmActions.length ? 'red' : 'green'} n={<CountUp value={P.mrmActions.length} />} t="MRM actions overdue" d="Past due date" icon={bg(ListChecks)} onClick={go('/r/MRA')} />
+        <Stat tone={expired ? 'red' : d.upcoming.expiries.length ? 'amber' : 'teal'} n={<CountUp value={d.upcoming.expiries.length} />} t="Certificates expiring" d={expired ? `${expired} already expired` : 'Within 120 days'} icon={bg(Award)} onClick={go('/documents?tab=cert')} />
       </div>
 
-      <div className="kpis">
-        <Tile l="Audits overdue" v={P.audits.length} tone={P.audits.length ? 'red' : 'green'} onClick={() => nav('/r/AUD')} />
-        <Tile l="Open findings" v={P.findings?.n ?? 0} s={`${P.findings?.ncr ?? 0} NCR open`} tone={P.findings?.ncr ? 'amber' : 'green'} onClick={() => nav('/disposition')} />
-        <Tile l="Findings > 90 days" v={P.findings?.over90 ?? 0} tone={P.findings?.over90 ? 'red' : 'green'} onClick={() => nav('/disposition')} />
-        <Tile l="Pending trainings" v={P.trainingsCount} tone={P.trainingsCount ? 'amber' : 'green'} onClick={() => nav('/r/TRN')} />
-        <Tile l="MRM actions overdue" v={P.mrmActions.length} tone={P.mrmActions.length ? 'red' : 'green'} onClick={() => nav('/r/MRA')} />
-        <Tile l="Expiring in 120 days" v={d.upcoming.expiries.length} tone={d.upcoming.expiries.some((x: any) => x.expiry < new Date().toISOString().slice(0, 10)) ? 'red' : d.upcoming.expiries.length ? 'amber' : 'green'} onClick={() => nav('/documents?tab=cert')} />
+      <div className="quick stagger">
+        {can('ingest', 'create') && <button className="qbtn" onClick={go('/ingest')}><span className="qi" style={{ background: 'linear-gradient(135deg,#1463f3,#60a5fa)' }}><Upload size={18} /></span>Upload</button>}
+        {can('findings', 'create') && <button className="qbtn" onClick={go('/r/FND?new=NCR')}><span className="qi" style={{ background: 'linear-gradient(135deg,#e11d48,#fb7185)' }}><AlertTriangle size={18} /></span>New NCR</button>}
+        {can('findings', 'create') && <button className="qbtn" onClick={go('/r/FND?new=OBSERVATION')}><span className="qi" style={{ background: 'linear-gradient(135deg,#d97706,#fbbf24)' }}><Eye size={18} /></span>New Observation</button>}
+        {can('reports', 'view') && <button className="qbtn" onClick={go('/reports')}><span className="qi" style={{ background: 'linear-gradient(135deg,#6d28d9,#a78bfa)' }}><FileBarChart size={18} /></span>Monthly Report</button>}
+        <div className="qbtn sel"><span className="qi" style={{ background: 'linear-gradient(135deg,#047857,#34d399)' }}><FileSpreadsheet size={18} /></span><select value={exp} onChange={(e) => { setExp(e.target.value); if (e.target.value) doExport(e.target.value); }}><option value="">Export Excel…</option>{registers.map((r) => <option key={r.code} value={r.code}>{r.name}</option>)}</select></div>
       </div>
 
       <div className="cards wide">
-        <Panel title="Pending actions" link="/disposition">
+        <Panel title="Pending actions" icon={<Clock4 size={16} color="#e11d48" />} link="/disposition">
           <List empty="No overdue items." items={[
             ...P.audits.map((a: any) => ({ k: `a${a.id}`, t: `Audit ${a.report_no || a.uid || ''} · ${a.sub_category || ''}`, s: `${a.client || ''} ${a.won || ''} · planned ${fmtDate(a.plan_date)}`, b: <span className="chip red">{-days(a.plan_date)} d late</span>, go: `/r/AUD?id=${a.id}` })),
             ...P.overdueFindings.map((f: any) => ({ k: `f${f.id}`, t: `${f.finding_type || 'Finding'} ${f.finding_no || f.report_no || ''}`, s: `${f.client || ''} ${f.won || ''} · ${f.actionee || 'no actionee'}`, b: <span className="chip red">{f.age} d open</span>, go: `/r/FND?id=${f.id}` })),
@@ -57,7 +72,7 @@ export default function Home() {
             ...P.mrmActions.map((m: any) => ({ k: `m${m.id}`, t: `MRM action ${m.report_no}`, s: `${(m.action || '').slice(0, 80)} · ${m.owner || ''}`, b: <span className="chip red">due {fmtDate(m.due_date)}</span>, go: `/r/MRA?id=${m.id}` })),
           ]} />
         </Panel>
-        <Panel title="Upcoming" link="/r/AUD">
+        <Panel title="Upcoming" icon={<CalendarClock size={16} color="#1463f3" />} link="/r/AUD">
           <List empty="Nothing scheduled in the coming weeks." items={[
             ...d.upcoming.audits.map((a: any) => ({ k: `a${a.id}`, t: `${a.sub_category || 'Audit'} · ${a.client || ''}`, s: `${a.report_no || ''} ${a.process || ''} · ${a.ext_int || ''}`, b: <span className="chip open">{fmtDate(a.plan_date)}</span>, go: `/r/AUD?id=${a.id}` })),
             ...d.upcoming.events.map((e: any) => ({ k: `e${e.id}`, t: e.register === 'MRM' ? `MRM ${e.report_no}` : e.title, s: e.register === 'MRM' ? 'Management review meeting' : e.type || 'Quality event', b: <span className="chip">{fmtDate(e.plan_date)}</span>, go: `/r/${e.register}?id=${e.id}` })),
@@ -66,7 +81,7 @@ export default function Home() {
         </Panel>
       </div>
 
-      <div className="section-title"><h2>Project health</h2><a href="/wo">All projects →</a></div>
+      <div className="section-title"><h2>Project health</h2><div className="row small"><span className="health"><span className="dot Red" />{d.projects.filter((p: any) => p.status === 'Red').length}</span><span className="health"><span className="dot Amber" />{d.projects.filter((p: any) => p.status === 'Amber').length}</span><span className="health"><span className="dot Green" />{d.projects.filter((p: any) => p.status === 'Green').length}</span><a href="/wo">All projects →</a></div></div>
       <div className="grid-wrap" style={{ maxHeight: 420 }}>
         <table className="grid"><thead><tr><th>Health</th><th>WON</th><th>Client</th><th>Project</th><th>Open findings</th><th>Open NCR</th><th>Repair rate (90 d)</th><th>Why</th><th>Last activity</th></tr></thead>
           <tbody>{d.projects.map((p: any) => (
@@ -80,11 +95,8 @@ export default function Home() {
   );
 }
 
-function Tile({ l, v, s, tone, onClick }: { l: string; v: any; s?: string; tone?: string; onClick?: () => void }) {
-  return <div className={`kpi ${tone || ''}`} onClick={onClick} style={{ cursor: onClick ? 'pointer' : undefined }}><div className="l">{l}</div><div className="v">{v}</div>{s && <div className="s">{s}</div>}</div>;
-}
-function Panel({ title, link, children }: { title: string; link?: string; children: React.ReactNode }) {
-  return <div className="card"><div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}><h2 style={{ margin: 0 }}>{title}</h2>{link && <a href={link} className="small">Open →</a>}</div>{children}</div>;
+function Panel({ title, link, icon, children }: { title: string; link?: string; icon?: React.ReactNode; children: React.ReactNode }) {
+  return <div className="card"><div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}><h2 style={{ margin: 0, display: 'flex', gap: 8, alignItems: 'center' }}>{icon}{title}</h2>{link && <a href={link} className="small">Open →</a>}</div>{children}</div>;
 }
 function List({ items, empty }: { items: { k: string; t: string; s?: string; b?: React.ReactNode; go?: string }[]; empty: string }) {
   const nav = useNavigate();

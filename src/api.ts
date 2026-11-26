@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState, useCallback } from 'react';
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
@@ -31,4 +32,57 @@ export function qs(o: Record<string, unknown>): string {
   for (const [k, v] of Object.entries(o)) if (v !== undefined && v !== null && v !== '') p.set(k, String(v));
   const s = p.toString();
   return s ? `?${s}` : '';
+}
+
+// ---- Stale-while-revalidate cache: show the last result instantly, refresh in the background. ----
+
+const mem = new Map<string, { t: number; v: unknown }>();
+const KEY = (u: string) => `swr:${u}`;
+function readCache<T>(url: string): T | undefined {
+  const m = mem.get(url);
+  if (m) return m.v as T;
+  try { const s = sessionStorage.getItem(KEY(url)); if (s) { const p = JSON.parse(s); mem.set(url, p); return p.v as T; } } catch { /* storage unavailable */ }
+  return undefined;
+}
+function writeCache(url: string, v: unknown) {
+  const e = { t: Date.now(), v };
+  mem.set(url, e);
+  try { const s = JSON.stringify(e); if (s.length < 1_500_000) sessionStorage.setItem(KEY(url), s); } catch { /* quota or private mode */ }
+}
+export const peekCache = readCache;
+export const putCache = writeCache;
+
+export function clearCache() {
+  mem.clear();
+  try { for (const k of Object.keys(sessionStorage)) if (k.startsWith('swr:')) sessionStorage.removeItem(k); } catch { /* ignore */ }
+}
+// Any write invalidates cached reads (the server bumps its data version on every write too).
+for (const m of ['post', 'put', 'del', 'form'] as const) {
+  const orig = (api as any)[m];
+  (api as any)[m] = (...a: unknown[]) => orig(...a).then((r: unknown) => { if (!String(a[0]).startsWith('/api/public')) clearCache(); return r; });
+}
+
+export function useSWR<T = any>(url: string | null, opts: { refreshMs?: number } = {}) {
+  const [data, setData] = useState<T | undefined>(() => (url ? readCache<T>(url) : undefined));
+  const [error, setError] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const cur = useRef(url);
+  const load = useCallback(async () => {
+    if (!url) return;
+    cur.current = url;
+    setLoading(true);
+    try {
+      const v = await api.get<T>(url);
+      if (cur.current === url) { setData(v); setError(''); writeCache(url, v); }
+    } catch (e: any) { if (cur.current === url) setError(e.message || 'Failed to load'); }
+    finally { if (cur.current === url) setLoading(false); }
+  }, [url]);
+  useEffect(() => {
+    if (!url) return;
+    const c = readCache<T>(url);
+    if (c !== undefined) setData(c);
+    load();
+    if (opts.refreshMs) { const t = setInterval(load, opts.refreshMs); return () => clearInterval(t); }
+  }, [url, load, opts.refreshMs]);
+  return { data, error, loading, reload: load, stale: loading && data !== undefined };
 }

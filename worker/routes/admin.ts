@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { type AppEnv, HttpError, hashPassword, passwordProblems, requirePerm, logAudit, invalidateConfig, getConfigs } from '../lib';
 import { nextNumber } from '../core';
+import { putFile } from '../storage';
 
 export const adminRoutes = new Hono<AppEnv>();
 
@@ -142,12 +143,25 @@ adminRoutes.put('/settings', async (c) => {
   requirePerm(c, 'admin', 'edit');
   const b = await c.req.json<Record<string, string>>();
   for (const [k, v] of Object.entries(b)) {
-    if (k.includes('hash')) continue;
+    if (k.includes('hash') || ['data_version', 'logo_key', 'setup_code', 'qms_map'].includes(k)) continue;
     await c.env.DB.prepare('INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').bind(k, String(v)).run();
   }
   await logAudit(c, 'settings.update', 'settings', null, Object.keys(b));
   return c.json({ ok: true });
 });
+adminRoutes.post('/logo', async (c) => {
+  requirePerm(c, 'admin', 'edit');
+  const f = await c.req.formData();
+  const file = f.get('file') as unknown as File | null;
+  if (!file || typeof file === 'string' || !/^image\/(png|jpeg|webp|svg\+xml)$/.test(file.type)) throw new HttpError(400, 'Upload a PNG, SVG, WEBP or JPG logo.');
+  if (file.size > 2 * 1024 * 1024) throw new HttpError(413, 'Logo larger than 2 MB.');
+  const key = `public/logo-${Date.now()}-${file.name.replace(/[^\w.\- ]+/g, '_')}`;
+  await putFile(c.env, key, await file.arrayBuffer(), file.type);
+  await c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('logo_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(key).run();
+  await logAudit(c, 'logo.update', 'settings', 'logo_key');
+  return c.json({ ok: true });
+});
+
 adminRoutes.get('/stats', async (c) => {
   const regs = await getConfigs(c.env);
   const counts = await c.env.DB.prepare('SELECT register, COUNT(*) AS n FROM records WHERE deleted = 0 GROUP BY register').all<any>();

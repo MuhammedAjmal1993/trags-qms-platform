@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api } from '../api';
+import { api, useSWR } from '../api';
 import { useApp } from '../ctx';
-import { Drawer, Spinner, statusChip, pct } from '../components/ui';
+import { Drawer, Spinner, statusChip, pct, PageSkeleton } from '../components/ui';
 import { snapshot } from '../components/Charts';
 import { fmtDate } from '../../shared/logic';
 import { readWorkbook, cellValue, exportTable } from '../lib/excel';
@@ -16,11 +16,9 @@ const WO_FIELDS = [
 export function WorkOrders() {
   const { can, toast } = useApp();
   const nav = useNavigate();
-  const [d, setD] = useState<{ workorders: any[]; unregistered: any[] } | null>(null);
+  const { data: d, reload: load } = useSWR<{ workorders: any[]; unregistered: any[] }>('/api/stats/workorders');
   const [q, setQ] = useState('');
   const [edit, setEdit] = useState<any>(null);
-  const load = () => api.get('/api/stats/workorders').then(setD);
-  useEffect(() => { load(); }, []);
   const rows = useMemo(() => (d?.workorders || []).filter((w) => !q || JSON.stringify(w).toLowerCase().includes(q.toLowerCase())), [d, q]);
 
   const importList = async (file: File) => {
@@ -57,7 +55,7 @@ export function WorkOrders() {
   };
   const fileRef = useRef<HTMLInputElement>(null);
 
-  if (!d) return <Spinner />;
+  if (!d) return <PageSkeleton />;
   return (
     <div>
       <div className="page-head">
@@ -135,7 +133,7 @@ export function WorkOrderDetail() {
   const [tab, setTab] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { setD(null); api.get(`/api/stats/wo/${won}`).then((x) => { setD(x); setTab(Object.keys(x.records)[0] || ''); }).catch((e) => toast(e.message, 'err')); }, [won, toast]);
-  if (!d) return <Spinner />;
+  if (!d) return <PageSkeleton />;
   const wo = d.workorder || {};
   const h = wo.health_override ? { ...d.health, status: wo.health_override, reasons: [`Manual override (automatic: ${d.health.status})`, ...d.health.reasons] } : d.health;
   const val = (r: any, k: string) => (k in r && r[k] !== undefined && !['films_rt', 'films_rej', 'subject', 'description'].includes(k) ? r[k] : r.data[k]);

@@ -85,3 +85,52 @@ export function useDebounced<T>(v: T, ms = 250): T {
   useEffect(() => { const t = setTimeout(() => setD(v), ms); return () => clearTimeout(t); }, [v, ms]);
   return d;
 }
+
+// Animated number: counts up from 0 to the target when it first appears.
+export function CountUp({ value, ms = 900, fmt }: { value: number | null | undefined; ms?: number; fmt?: (n: number) => string }) {
+  const [n, setN] = useState(0);
+  const target = Number(value ?? 0);
+  useEffect(() => {
+    if (!isFinite(target)) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { setN(target); return; }
+    let raf = 0; const t0 = performance.now(); const from = 0;
+    const step = (t: number) => { const p = Math.min(1, (t - t0) / ms); const e = 1 - Math.pow(1 - p, 3); setN(from + (target - from) * e); if (p < 1) raf = requestAnimationFrame(step); };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  if (value === null || value === undefined || !isFinite(target)) return <>–</>;
+  return <>{fmt ? fmt(n) : Math.round(n).toLocaleString()}</>;
+}
+
+export function Kpi({ l, v, s, tone, icon, onClick, bar }: { l: string; v: ReactNode; s?: ReactNode; tone?: string; icon?: ReactNode; onClick?: () => void; bar?: number | null }) {
+  return (
+    <div className={`kpi ${tone || ''}`} onClick={onClick} style={{ cursor: onClick ? 'pointer' : undefined }}>
+      {icon && <div className="ic">{icon}</div>}
+      <div className="l">{l}</div><div className="v">{v ?? '–'}</div>{s && <div className="s">{s}</div>}
+      {bar !== undefined && bar !== null && <div className="bar"><i style={{ width: `${Math.max(0, Math.min(100, bar * 100))}%` }} /></div>}
+    </div>
+  );
+}
+
+export function Stat({ n, t, d, tone, icon, onClick, pulse }: { n: ReactNode; t: string; d?: ReactNode; tone: string; icon?: ReactNode; onClick?: () => void; pulse?: boolean }) {
+  return (
+    <button type="button" className={`stat ${tone} ${pulse ? 'pulse' : ''}`} onClick={onClick}>
+      <div className="n">{n}</div><div className="t">{t}</div>{d && <div className="d">{d}</div>}
+      {icon}
+    </button>
+  );
+}
+
+export function Skeleton({ h = 120, n = 1 }: { h?: number; n?: number }) {
+  return <>{Array.from({ length: n }).map((_, i) => <div key={i} className="skel" style={{ height: h, marginBottom: 12 }} />)}</>;
+}
+
+export function PageSkeleton() {
+  return (
+    <div className="page">
+      <div className="skel" style={{ height: 34, width: 280, marginBottom: 16 }} />
+      <div className="kpis">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="skel" style={{ height: 92 }} />)}</div>
+      <div className="cards wide">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="skel" style={{ height: 290 }} />)}</div>
+    </div>
+  );
+}

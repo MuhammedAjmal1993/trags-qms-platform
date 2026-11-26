@@ -542,6 +542,7 @@ export const REGISTERS: RegisterConfig[] = [
       { key: 'location', label: 'Location', type: 'text', role: 'process' },
       { key: 'linked_ref', label: 'Linked Ref (UID / Report No)', type: 'text', role: 'report_no' },
       { key: 'notes', label: 'Notes', type: 'textarea' },
+      { key: 'public', label: 'Show on public landing page', type: 'select', options: ['No', 'Yes'] },
     ],
   },
 ];

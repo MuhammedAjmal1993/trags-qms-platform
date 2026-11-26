@@ -2,12 +2,15 @@ import { Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { type AppEnv, HttpError } from './lib';
 import { ensureSchema } from './core';
+import { bumpVersion } from './cache';
+import { publicRoutes } from './routes/public';
 import { authRoutes, loadSession, SESSION_COOKIE } from './routes/auth';
 import { adminRoutes } from './routes/admin';
 import { recordRoutes } from './routes/records';
 import { ingestRoutes } from './routes/ingest';
 import { docRoutes } from './routes/docs';
 import { statRoutes } from './routes/stats';
+import { reviewRoutes } from './routes/review';
 
 const app = new Hono<AppEnv>();
 
@@ -28,7 +31,11 @@ app.use('/api/*', async (c, next) => {
   c.header('Cache-Control', 'no-store');
   c.header('X-Content-Type-Options', 'nosniff');
   await next();
+  // Any successful data change invalidates cached dashboards.
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && c.res.status < 400 && !c.req.path.startsWith('/api/auth')) await bumpVersion(c.env);
 });
+
+app.route('/api/public', publicRoutes);
 
 app.route('/api/auth', authRoutes);
 
@@ -44,6 +51,7 @@ app.use('/api/*', async (c, next) => {
 app.route('/api/admin', adminRoutes);
 app.route('/api/uploads', ingestRoutes);
 app.route('/api/stats', statRoutes);
+app.route('/api/review', reviewRoutes);
 app.route('/api', docRoutes);
 app.route('/api', recordRoutes);
 

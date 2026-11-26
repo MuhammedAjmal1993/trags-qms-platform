@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
 import { type AppEnv, type Env, HttpError, requirePerm, can } from '../lib';
+import { cached } from '../cache';
+const ck = (c: any) => new URL(c.req.url).pathname + new URL(c.req.url).search;
 
 export const statRoutes = new Hono<AppEnv>();
 
@@ -127,16 +129,16 @@ export async function buildDashboard(env: Env, f: Filt) {
 
 statRoutes.get('/dashboard', async (c) => {
   requirePerm(c, 'dashboard', 'view');
-  return c.json(await buildDashboard(c.env, filt(c.req.query())));
+  return cached(c.env, ck(c), async () => JSON.stringify(await buildDashboard(c.env, filt(c.req.query()))));
 });
 
-statRoutes.get('/filters', async (c) => {
+statRoutes.get('/filters', async (c) => cached(c.env, ck(c), async () => {
   const clients = await q(c.env, "SELECT DISTINCT client FROM records WHERE deleted=0 AND client IS NOT NULL AND client <> '' ORDER BY client", []);
   const wons = await q(c.env, "SELECT w.won, w.client, w.title, w.project_no FROM work_orders w ORDER BY w.won", []);
   const recWons = await q(c.env, "SELECT DISTINCT won FROM records WHERE deleted=0 AND won IS NOT NULL ORDER BY won", []);
   const years = await q(c.env, "SELECT DISTINCT substr(COALESCE(plan_date, actual_date),1,4) AS y FROM records WHERE deleted=0 AND COALESCE(plan_date, actual_date) IS NOT NULL ORDER BY y DESC", []);
-  return c.json({ clients: clients.map((r: any) => r.client), workorders: wons, wons: recWons.map((r: any) => r.won), years: years.map((r: any) => r.y).filter((y: string) => /^\d{4}$/.test(y)) });
-});
+  return JSON.stringify({ clients: clients.map((r: any) => r.client), workorders: wons, wons: recWons.map((r: any) => r.won), years: years.map((r: any) => r.y).filter((y: string) => /^\d{4}$/.test(y)) });
+}));
 
 // Health of one work order from its linked records.
 async function health(env: Env, won: string) {
@@ -161,6 +163,7 @@ async function health(env: Env, won: string) {
 
 statRoutes.get('/workorders', async (c) => {
   requirePerm(c, 'workorders', 'view');
+  return cached(c.env, ck(c), async () => {
   const rows = await q(c.env, `SELECT w.*,
       (SELECT COUNT(*) FROM records r WHERE r.won=w.won AND r.deleted=0) AS linked,
       (SELECT COUNT(*) FROM records r WHERE r.won=w.won AND r.deleted=0 AND r.register='FND' AND NOT (LOWER(COALESCE(r.status,'')) IN ('closed','cancelled'))) AS open_findings,
@@ -168,7 +171,8 @@ statRoutes.get('/workorders', async (c) => {
       (SELECT MAX(COALESCE(r.actual_date, r.plan_date)) FROM records r WHERE r.won=w.won AND r.deleted=0) AS last_activity
     FROM work_orders w ORDER BY last_activity DESC NULLS LAST, w.won`, []);
   const orphan = await q(c.env, `SELECT won, COUNT(*) AS linked FROM records WHERE deleted=0 AND won IS NOT NULL AND won NOT IN (SELECT won FROM work_orders) GROUP BY won ORDER BY linked DESC`, []);
-  return c.json({ workorders: rows, unregistered: orphan });
+  return JSON.stringify({ workorders: rows, unregistered: orphan });
+  });
 });
 
 statRoutes.get('/wo/:won', async (c) => {
@@ -190,6 +194,7 @@ statRoutes.get('/wo/:won', async (c) => {
 // Monthly QC report data for any period.
 statRoutes.get('/monthly', async (c) => {
   requirePerm(c, 'reports', 'view');
+  return cached(c.env, ck(c), async () => {
   const f = filt(c.req.query());
   const dash = await buildDashboard(c.env, f);
   const a: unknown[] = [f.from, f.to];
@@ -205,11 +210,12 @@ statRoutes.get('/monthly', async (c) => {
   const feedback = await q(c.env, `SELECT uid, sub_category, client, won, plan_date, json_extract(data,'$.description') AS description, status FROM records WHERE register='CFB' AND deleted=0 AND plan_date BETWEEN ? AND ? ${extra(f, g)} ORDER BY plan_date`, g);
   const openList = await q(c.env, `SELECT uid, report_no, json_extract(data,'$.finding_no') AS finding_no, finding_type, won, client, plan_date, CAST(julianday('now') - julianday(plan_date) AS INTEGER) AS age, json_extract(data,'$.actionee') AS actionee
     FROM records WHERE register='FND' AND deleted=0 AND NOT (${CLOSED}) ${extra(f, [])} ORDER BY plan_date LIMIT 200`, f.won || f.client || f.extint ? (() => { const x: unknown[] = []; extra(f, x); return x; })() : []);
-  return c.json({ ...dash, lists: { newFindings, closedFindings, audits, trainings, feedback, openFindings: openList } });
+  return JSON.stringify({ ...dash, lists: { newFindings, closedFindings, audits, trainings, feedback, openFindings: openList } });
+  });
 });
 
 // ---- Home: pending actions, upcoming items, project health ---------------------------
-statRoutes.get('/home', async (c) => {
+statRoutes.get('/home', async (c) => cached(c.env, ck(c), async () => {
   const env = c.env;
   const today = new Date().toISOString().slice(0, 10);
   const plus = (d: number) => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
@@ -240,6 +246,7 @@ statRoutes.get('/home', async (c) => {
        WHERE r.deleted=0 AND r.won IS NOT NULL AND r.won <> '1010010' AND COALESCE(r.actual_date, r.plan_date) >= ? GROUP BY r.won ORDER BY last DESC LIMIT 40`, minus(180)),
     S(`SELECT value FROM settings WHERE key='wrr_target'`),
     S(`SELECT register, COUNT(*) AS n FROM records WHERE deleted=0 GROUP BY register`),
+    S(`SELECT COUNT(*) AS n FROM submissions WHERE status='Pending'`),
   ]);
   const R = (i: number) => res[i].results as any[];
   const target = Number(R(13)[0]?.value || 0.02);
@@ -257,16 +264,17 @@ statRoutes.get('/home', async (c) => {
     const status = p.health_override || ['Green', 'Amber', 'Red'][level];
     return { won: p.won, client: p.client, title: p.title, project_no: p.project_no, last: p.last, records: p.n, open: a.open, ncr: a.ncr, repairRate: rate, status, reasons };
   }).sort((x, y) => ['Red', 'Amber', 'Green'].indexOf(x.status) - ['Red', 'Amber', 'Green'].indexOf(y.status));
-  return c.json({
+  return JSON.stringify({
     pending: { audits: R(0), findings: R(1)[0], overdueFindings: R(2), trainings: R(3), trainingsCount: R(4)[0]?.n ?? 0, mrmActions: R(5) },
     upcoming: { audits: R(6), events: R(7), expiries: R(8) },
-    projects, counts: Object.fromEntries(R(14).map((x) => [x.register, x.n])),
+    projects, counts: Object.fromEntries(R(14).map((x) => [x.register, x.n])), review: R(15)[0]?.n ?? 0,
   });
-});
+}));
 
 // ---- Insights: compact datasets built as JSON inside D1 (no per-row JS work) ---------
 statRoutes.get('/insights', async (c) => {
   requirePerm(c, 'insights', 'view');
+  return cached(c.env, ck(c), async () => {
   const from = c.req.query('from') || `${new Date().getUTCFullYear() - 2}-01-01`;
   const to = c.req.query('to') || `${new Date().getUTCFullYear()}-12-31`;
   const S = (sql: string, ...a: unknown[]) => c.env.DB.prepare(sql).bind(...a);
@@ -281,8 +289,8 @@ statRoutes.get('/insights', async (c) => {
   ]);
   const j = (i: number) => (res[i].results[0] as any)?.j || '[]';
   const map = (res[6].results[0] as any)?.value || 'null';
-  const body = `{"from":"${from}","to":"${to}","findings":${j(0)},"audits":${j(1)},"trainings":${j(2)},"feedback":${j(3)},"mrm":${j(4)},"mrmActions":${j(5)},"qmsMap":${map}}`;
-  return new Response(body, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
+  return `{"from":"${from}","to":"${to}","findings":${j(0)},"audits":${j(1)},"trainings":${j(2)},"feedback":${j(3)},"mrm":${j(4)},"mrmActions":${j(5)},"qmsMap":${map}}`;
+  });
 });
 
 // Photo library: image attachments across all registers, newest first.
@@ -300,12 +308,12 @@ statRoutes.get('/photos', async (c) => {
 });
 
 // Per-register totals for hub overview tiles.
-statRoutes.get('/hubcounts', async (c) => {
+statRoutes.get('/hubcounts', async (c) => cached(c.env, ck(c), async () => {
   const today = new Date().toISOString().slice(0, 10);
   const r = await c.env.DB.prepare(`SELECT register, COUNT(*) AS total,
       SUM(CASE WHEN LOWER(COALESCE(status,'')) IN ('closed','cancelled','completed','done','verified','implemented','conducted','approved','awc','minutes issued','resigned','terminated','transferred','archived','inactive') THEN 0 ELSE 1 END) AS open,
       SUM(CASE WHEN due_date IS NOT NULL AND due_date < ? AND LOWER(COALESCE(status,'')) NOT IN ('closed','cancelled','completed','done','verified','implemented','inactive') THEN 1 ELSE 0 END) AS overdue,
       MAX(updated_at) AS last
     FROM records WHERE deleted = 0 GROUP BY register`).bind(today).all();
-  return c.json(r.results);
-});
+  return JSON.stringify(r.results);
+}));

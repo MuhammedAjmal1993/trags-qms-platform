@@ -1,15 +1,36 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import { api, fileUrl, qs } from '../api';
+import { api, fileUrl, qs, peekCache, putCache } from '../api';
 import { useApp } from '../ctx';
 import type { RegisterConfig } from '../../shared/registers';
 import { MODULE_OF_REGISTER } from '../../shared/registers';
 import { Grid, type Row } from '../components/Grid';
 import { RecordForm, missingRequired } from '../components/RecordForm';
-import { Drawer, Spinner, Confirm, Modal } from '../components/ui';
+import { Drawer, Spinner, Confirm, Modal, PageSkeleton } from '../components/ui';
 import { exportRegister } from '../lib/excel';
 import { fillPdfForm, printFindingForm, F271_DEFAULT_MAP } from '../lib/forms';
 import { compressImage } from '../lib/images';
+
+const CLOSED_RE = /^(closed|cancelled|completed|conducted|done|verified|implemented|approved|accepted|held|minutes issued|awc|inactive)$/i;
+const roleKey = (cfg: RegisterConfig, role: string) => cfg.columns.find((c) => c.role === role)?.key;
+function statusCounts(cfg: RegisterConfig, rows: Row[]): [string, number][] {
+  const k = roleKey(cfg, 'status');
+  if (!k) return [];
+  const m = new Map<string, number>();
+  for (const r of rows) { const v = String(r.data[k] ?? '').trim(); m.set(v, (m.get(v) || 0) + 1); }
+  return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+}
+// Overdue: still open and past its due date (findings: open more than 90 days; audits: plan date passed, not conducted).
+function isOverdue(cfg: RegisterConfig, r: Row): boolean {
+  const today = new Date().toISOString().slice(0, 10);
+  const st = String(r.data[roleKey(cfg, 'status') || ''] ?? '').trim();
+  if (CLOSED_RE.test(st) || /postponed/i.test(st)) return false;
+  const plan = String(r.data[roleKey(cfg, 'plan_date') || ''] ?? '');
+  if (cfg.code === 'FND') return !!plan && (Date.parse(today) - Date.parse(plan)) / 86400000 > 90;
+  if (cfg.code === 'AUD' || cfg.code === 'TRN') return !!plan && plan < today && !r.data[roleKey(cfg, 'actual_date') || ''];
+  const due = String(r.data[roleKey(cfg, 'due_date') || ''] ?? '');
+  return !!due && /^\d{4}-\d{2}-\d{2}/.test(due) && due < today && !r.data[roleKey(cfg, 'close_date') || ''];
+}
 
 export default function RegisterPage() {
   const { code = '' } = useParams();
@@ -29,16 +50,24 @@ export default function RegisterPage() {
   const [showCols, setShowCols] = useState(false);
   const [wos, setWos] = useState<any[]>([]);
   const [binOpen, setBinOpen] = useState(false);
+  const [sf, setSf] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
-    try {
-      const c: RegisterConfig = await api.get(`/api/registers/${code}`);
+    const cfgUrl = `/api/registers/${code}`, rowsUrl = `/api/records/${code}${qs({ year, won })}`;
+    const applyCfg = (c: RegisterConfig) => {
       setCfg(c);
-      const saved = localStorage.getItem(`cols:${code}`);
+      let saved: string | null = null;
+      try { saved = localStorage.getItem(`cols:${code}`); } catch { /* ignore */ }
       setHidden(new Set(saved ? JSON.parse(saved) : c.columns.filter((x) => x.hidden).map((x) => x.key)));
-      const r = await api.get(`/api/records/${code}${qs({ year, won })}`);
-      setRows(r.rows);
+    };
+    // Show the last loaded copy at once, then refresh from the server.
+    const cc = peekCache<RegisterConfig>(cfgUrl), cr = peekCache<{ rows: Row[] }>(rowsUrl);
+    if (cc && cr) { applyCfg(cc); setRows(cr.rows); setLoading(false); }
+    try {
+      const [c, r] = await Promise.all([api.get<RegisterConfig>(cfgUrl), api.get<{ rows: Row[] }>(rowsUrl)]);
+      applyCfg(c); setRows(r.rows);
+      putCache(cfgUrl, c); putCache(rowsUrl, r);
     } catch (e: any) { toast(e.message, 'err'); } finally { setLoading(false); }
   }, [code, year, won, toast]);
 
@@ -60,7 +89,10 @@ export default function RegisterPage() {
     localStorage.setItem(`cols:${code}`, JSON.stringify([...n]));
   };
 
-  if (!cfg) return loading ? <Spinner /> : <div className="empty">Register not found.</div>;
+  if (!cfg) return loading ? <PageSkeleton /> : <div className="empty">Register not found.</div>;
+  const shown = sf ? rows.filter((r) => (sf === '__overdue' ? isOverdue(cfg, r) : String(r.data[roleKey(cfg, 'status') || ''] ?? '') === sf)) : rows;
+  const stCounts = statusCounts(cfg, rows);
+  const overdueN = rows.filter((r) => isOverdue(cfg, r)).length;
   return (
     <div>
       <div className="page-head">
@@ -68,7 +100,7 @@ export default function RegisterPage() {
         <div className="row">
           {can(module, 'create') && <button className="primary" onClick={() => setOpen('new')}>+ New record</button>}
           {can('ingest', 'create') && <button onClick={() => nav(`/ingest?target=${code}`)}>Import / upload</button>}
-          {can(module, 'export') && <button onClick={() => exportRegister(cfg, rows)}>Export Excel</button>}
+          {can(module, 'export') && <button onClick={() => exportRegister(cfg, shown)}>Export Excel{sf ? ' (filtered)' : ''}</button>}
           <button onClick={() => setShowCols(true)}>Columns</button>
           {can(module, 'delete') && <button onClick={() => setBinOpen(true)}>Deleted</button>}
           {code === 'AUD' && can(module, 'edit') && <button title="Recount NCR/OBS/OFI per audit from the Finding Register" onClick={async () => { const r = await api.post('/api/records/FND/resync'); toast(`Finding Register check run on ${r.processed} findings.`); load(); }}>Finding Register check</button>}
@@ -80,7 +112,14 @@ export default function RegisterPage() {
         <input style={{ width: 120 }} placeholder="WON" value={won} onChange={(e) => setWon(e.target.value.trim())} />
         {loading && <Spinner />}
       </div>
-      <Grid cfg={cfg} rows={rows} hidden={hidden} globalQ={q} onOpen={(r) => setOpen(r)} />
+      {(stCounts.length > 0 || overdueN > 0) && (
+        <div className="row" style={{ marginBottom: 10, gap: 6 }}>
+          <button className={`sm ${!sf ? 'primary' : ''}`} onClick={() => setSf('')}>All <b>{rows.length}</b></button>
+          {overdueN > 0 && <button className={`sm ${sf === '__overdue' ? 'primary' : ''}`} style={sf === '__overdue' ? undefined : { color: '#be123c', borderColor: '#fecdd3', background: '#fff5f7' }} onClick={() => setSf(sf === '__overdue' ? '' : '__overdue')}>Overdue <b>{overdueN}</b></button>}
+          {stCounts.map(([k, n]) => <button key={k} className={`sm ${sf === k ? 'primary' : ''}`} onClick={() => setSf(sf === k ? '' : k)}>{k || '(blank)'} <b>{n}</b></button>)}
+        </div>
+      )}
+      <Grid cfg={cfg} rows={shown} hidden={hidden} globalQ={q} onOpen={(r) => setOpen(r)} />
 
       {open && <RecordDrawer cfg={cfg} row={open === 'new' ? null : open} preset={sp.get('new') || ''} wos={wos} onClose={() => setOpen(null)}
         onSaved={() => { setOpen(null); load(); refreshRegisters(); }} />}

@@ -50,6 +50,18 @@ async function seed(env: Env) {
   }
   stmts.push(env.DB.prepare("INSERT OR IGNORE INTO templates (code, label, kind) VALUES ('F271','F271 R1 Observation Disposition Form','pdf-form'),('NCR','NCR Form (TRAGS format)','pdf-form')"));
   await env.DB.batch(stmts);
+  // Non-destructive config upgrade: columns added in code are appended to stored (admin-edited) configs.
+  const stored = await env.DB.prepare('SELECT code, config FROM registers').all<{ code: string; config: string }>();
+  const ups: D1PreparedStatement[] = [];
+  for (const row of stored.results) {
+    const code = REGISTERS.find((r) => r.code === row.code);
+    if (!code) continue;
+    const cur = JSON.parse(row.config);
+    const have = new Set((cur.columns || []).map((c: any) => c.key));
+    const add = code.columns.filter((c) => !have.has(c.key) && !(cur.removedKeys || []).includes(c.key));
+    if (add.length) { cur.columns = [...cur.columns, ...add]; ups.push(env.DB.prepare('UPDATE registers SET config = ? WHERE code = ?').bind(JSON.stringify(cur), row.code)); }
+  }
+  if (ups.length) await env.DB.batch(ups);
   invalidateConfig();
 }
 
