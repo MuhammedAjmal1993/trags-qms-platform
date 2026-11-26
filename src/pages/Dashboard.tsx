@@ -68,6 +68,7 @@ export default function Dashboard() {
   if (!d) return <PageSkeleton />;
   const k = d.kpi;
   const fType = (t: string) => months.map((m) => Number(d.findings.byMonth.find((r: any) => r.m === m && r.t === t)?.n ?? 0));
+  const wrT = Number(d.targets?.repair_rate ?? 0.015);
   const wrrRate = months.map((m) => { const r = d.welding.byMonth.find((x: any) => x.m === m); return r && r.films ? r.rej / r.films : null; });
   const rfiRate = months.map((m) => { const r = d.inspections.rfi.find((x: any) => x.m === m); return r && r.n - r.canc ? r.rej / (r.n - r.canc) : null; });
   const go = (to: string) => () => nav(to);
@@ -80,7 +81,7 @@ export default function Dashboard() {
   const findingsByMonth = <ChartCard title="Findings raised by month" sub="NCR / Observation / AFI"><BarChart stacked labels={months.map(mLabel)} series={['NCR', 'OBSERVATION', 'AFI'].map((t) => ({ label: t, data: fType(t), color: TYPE_COLORS[t] }))} /></ChartCard>;
   const findingsByClient = <ChartCard title="Findings by client" sub="Total vs still open"><BarChart horizontal labels={d.findings.byClient.map((r: any) => r.k)} series={[{ label: 'Total', data: d.findings.byClient.map((r: any) => r.n), color: '#bfd4fb' }, { label: 'Open', data: d.findings.byClient.map((r: any) => r.open), color: '#f43f5e' }]} /></ChartCard>;
   const ageing = <ChartCard title="Open findings ageing" sub="All open findings, days since issue"><BarChart labels={['≤ 30 d', '31–60 d', '61–90 d', '> 90 d']} series={[{ label: 'Open findings', data: [k.aging?.d30, k.aging?.d60, k.aging?.d90, k.aging?.over90].map(Number), color: '#f59e0b' }]} /></ChartCard>;
-  const wrr = <ChartCard title="Weld repair rate (film based)" sub="Rejected films / films RT'd"><LineChart pct labels={months.map(mLabel)} series={[{ label: 'Repair rate', data: wrrRate, color: '#7c3aed' }, { label: 'Target 2%', data: months.map(() => 0.02), color: '#f43f5e', dashed: true }]} /></ChartCard>;
+  const wrr = <ChartCard title="Weld repair rate (film based)" sub="Rejected films / films RT'd"><LineChart pct labels={months.map(mLabel)} series={[{ label: 'Repair rate', data: wrrRate, color: '#7c3aed' }, { label: `Target ${(wrT * 100).toFixed(1)}%`, data: months.map(() => wrT), color: '#f43f5e', dashed: true }]} /></ChartCard>;
 
   return (
     <div ref={root} className="page">
@@ -101,7 +102,7 @@ export default function Dashboard() {
             <Stat tone={k.findings_open ? 'amber' : 'green'} n={<CountUp value={k.findings_open} />} t="Findings open (period)" d={`NCR ${k.ncr} · OBS ${k.obs} · AFI ${k.afi} raised`} icon={bg(AlertTriangle)} onClick={go('/disposition')} />
             <Stat tone={k.aging?.over90 ? 'red' : 'green'} pulse={!!k.aging?.over90} n={<CountUp value={k.aging?.over90 ?? 0} />} t="Open over 90 days" d={`${k.aging?.open ?? 0} open in total, all years`} icon={bg(Clock4)} onClick={go('/disposition')} />
             <Stat tone={k.complaints_open ? 'pink' : 'green'} n={<CountUp value={k.complaints_open} />} t="Open complaints" d={`${k.feedback_total} feedback records`} icon={bg(MessageSquareWarning)} onClick={go('/r/CFB')} />
-            <Stat tone={k.repair_rate > 0.02 ? 'red' : 'teal'} n={k.repair_rate === null ? '–' : <CountUp value={k.repair_rate * 100} fmt={(n) => n.toFixed(2) + '%'} />} t="Weld repair rate" d={`${k.films_rej} / ${k.films_rt} films · target 2%`} icon={bg(Flame)} onClick={() => setSp({ tab: 'inspection' })} />
+            <Stat tone={k.repair_rate > wrT ? 'red' : 'teal'} n={k.repair_rate === null ? '–' : <CountUp value={k.repair_rate * 100} fmt={(n) => n.toFixed(2) + '%'} />} t="Weld repair rate" d={`${k.films_rej} / ${k.films_rt} films · target ≤ ${(wrT * 100).toFixed(1)}%`} icon={bg(Flame)} onClick={() => setSp({ tab: 'inspection' })} />
           </div>
           <div className="section-title" style={{ marginTop: 0 }}><h2><Target size={16} color="#1463f3" /> KPI scorecard against 2026 targets</h2></div>
           <div className="scorecard">
@@ -247,7 +248,7 @@ export default function Dashboard() {
             <Kpi l="RFIs" v={<CountUp value={k.rfi_total} />} icon={<Search size={16} />} />
             <Kpi l="RFI rejection" v={pct(k.rfi_rejection)} tone={k.rfi_rejection > 0.1 ? 'red' : 'green'} />
             <Kpi l="Films RT'd" v={<CountUp value={k.films_rt} />} tone="violet" />
-            <Kpi l="Weld repair rate" v={pct(k.repair_rate, 2)} s={`${k.films_rej} rejected · target 2%`} tone={k.repair_rate > 0.02 ? 'red' : 'green'} />
+            <Kpi l="Weld repair rate" v={pct(k.repair_rate, 2)} s={`${k.films_rej} rejected · target ≤ ${(wrT * 100).toFixed(1)}%`} tone={k.repair_rate > wrT ? 'red' : 'green'} />
           </div>
           <div className="cards wide">
             <ChartCard title="RFI volume and rejections">
