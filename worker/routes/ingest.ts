@@ -245,6 +245,17 @@ ingestRoutes.post('/', async (c) => {
     .bind(file.name, key, file.type, file.size, isExcel ? 'register' : kind, isExcel ? 'parsing' : 'extracting', target, c.get('user').id).first<{ id: number }>();
   const id = row!.id;
   await logAudit(c, 'upload', 'upload', id, { file: file.name, kind });
+  // Structured TRAGS workbooks (e.g. the internal audit workbook) are parsed in the browser; store the proposals for review.
+  const pre = form.get('proposals');
+  if (pre && typeof pre === 'string') {
+    const proposals = JSON.parse(pre) as { register: string; data: Record<string, unknown> }[];
+    for (const p of proposals) {
+      const w = p.data.won ? String(p.data.won) : '';
+      if (w && !p.data.client) { const wo = await c.env.DB.prepare('SELECT client FROM work_orders WHERE won = ?').bind(w).first<any>(); if (wo?.client) p.data.client = wo.client; }
+    }
+    await c.env.DB.prepare("UPDATE uploads SET kind = ?, status = 'review', extracted = ? WHERE id = ?").bind(kind, JSON.stringify({ raw: null, proposals }), id).run();
+    return c.json({ id, status: 'review', kind, proposals });
+  }
   if (isExcel) return c.json({ id, status: 'parsing' });
   try {
     const text = await toText(c.env, file.name, bytes);
@@ -300,10 +311,16 @@ ingestRoutes.post('/:id/apply', async (c) => {
           ? await c.env.DB.prepare("SELECT id FROM records WHERE register='AUD' AND deleted=0 AND ((report_no IS NOT NULL AND report_no = ?) OR (json_extract(data,'$.notification_ref') IS NOT NULL AND json_extract(data,'$.notification_ref') = ?))").bind(ref, nref).first<{ id: number }>()
           : null;
         if (ex) {
-          await updateRecord(c.env, ex.id, { ...r.data }, { user, source: `upload:${id}`, uploadId: id });
+          // Only fill what the upload actually states; never blank an existing value.
+          const patch = Object.fromEntries(Object.entries(r.data).filter(([k, v]) => v !== null && v !== '' && k !== '_flags'));
+          await updateRecord(c.env, ex.id, patch, { user, source: `upload:${id}`, uploadId: id });
           results.push({ register: 'AUD', id: ex.id, action: 'updated' });
           continue;
         }
+      }
+      if (r.register === 'FND' && r.data.report_no && r.data.finding_no) {
+        const ex = await c.env.DB.prepare("SELECT id, uid FROM records WHERE register='FND' AND deleted=0 AND report_no = ? AND json_extract(data,'$.finding_no') = ?").bind(String(r.data.report_no), String(r.data.finding_no)).first<any>();
+        if (ex) { results.push({ register: 'FND', id: ex.id, uid: ex.uid, action: 'exists (not duplicated)' }); continue; }
       }
       if (r.register === 'PPL' && r.data.emp_no) {
         const ex = await c.env.DB.prepare("SELECT id FROM records WHERE register='PPL' AND deleted=0 AND report_no = ?").bind(String(r.data.emp_no).trim()).first<{ id: number }>();

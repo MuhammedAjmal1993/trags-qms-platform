@@ -4,7 +4,7 @@ import { Home as HomeIcon, Settings, Search, Menu, ChevronDown, ChevronRight, Pa
 import { useApp } from './ctx';
 import { api, clearCache, useSWR } from './api';
 import { Login, Setup, ChangePassword } from './pages/Auth';
-import { Logo } from './components/Brand';
+import { Logo, Monogram } from './components/Brand';
 import { PageSkeleton } from './components/ui';
 
 // Pages load on demand so the first screen arrives quickly.
@@ -22,7 +22,7 @@ const Reports = L(() => import('./pages/Reports'));
 const Admin = L(() => import('./pages/Admin'));
 const Review = L(() => import('./pages/Review'));
 const QrPosters = L(() => import('./pages/Review'), 'QrPosters');
-const Landing = L(() => import('./pages/Public'), 'Landing');
+const Landing = L(() => import('./pages/Landing'), 'Landing');
 const QuickRaise = L(() => import('./pages/Public'), 'QuickRaise');
 const Hub = L(() => import('./pages/Hubs'), 'Hub');
 const Disposition = L(() => import('./pages/Hubs'), 'Disposition');
@@ -45,7 +45,7 @@ function Side({ rail, onRail, onNavigate }: { rail: boolean; onRail: () => void;
   const active = (g: typeof NAV[number]) => g.items.some((i) => loc.pathname + loc.search === i.to || loc.pathname === i.to.split('?')[0]);
   return (
     <aside className="side" onClick={(e) => { if ((e.target as HTMLElement).closest('a.nav')) onNavigate(); }}>
-      <div className="brand"><div className="logo"><Logo size={34} /></div><div><b>TRAGS QA/QC</b><span>Quality Management Platform</span></div></div>
+      <div className="brand"><span className="full"><Logo size={60} white /></span><span className="mono"><Monogram size={40} /></span><div><b>QA/QC Department</b><span>Quality Management Platform</span></div></div>
       <NavLink className="nav" to="/" end title="Home"><HomeIcon size={17} /><span className="lbl">Home</span></NavLink>
       {NAV.map((g) => {
         const items = g.items.filter((i) => can(i.module));
@@ -174,7 +174,7 @@ export default function App() {
   const path = location.pathname;
   // Public pages render without waiting for the session check.
   if (path === '/raise') return <BrowserRouter><Suspense fallback={<Blank />}><Routes><Route path="*" element={<QuickRaise />} /></Routes></Suspense></BrowserRouter>;
-  if (loading) return <div className="auth"><div className="row" style={{ color: '#fff', gap: 12 }}><Logo size={44} /><span className="spinner" /></div></div>;
+  if (loading) return <div className="auth"><div className="col" style={{ alignItems: 'center', gap: 16 }}><Logo size={90} white /><span className="spinner" /></div></div>;
   return (
     <BrowserRouter>
       {needsSetup ? <Setup />

@@ -3,7 +3,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard, Lightbulb, FileBarChart, Briefcase, ClipboardCheck, AlertTriangle, Wrench, MessageSquareHeart, BookOpen,
   Search, FileCheck2, FileSearch, HardHat, Flame, BadgeCheck, Users, Network, GraduationCap, Library, IdCard, FolderOpen, Award,
-  Target, RefreshCw, Sparkles, Presentation, ListChecks, Rocket, CalendarDays, Trophy, Star, Images, Upload, Inbox, QrCode, LayoutGrid,
+  Target, RefreshCw, Sparkles, Presentation, ListChecks, Rocket, CalendarDays, Trophy, Star, Images, Upload, Inbox, QrCode, LayoutGrid, ShieldAlert, TrendingUp, Newspaper,
 } from 'lucide-react';
 
 export interface NavItem { label: string; to: string; module: string; register?: string; icon: LucideIcon; badge?: string }
@@ -48,8 +48,11 @@ export const NAV: NavGroup[] = [
   ] },
   { id: 'h5', label: 'QMS Documents & Plans', color: '#34d399', items: [
     { label: 'Document Library', to: '/documents', module: 'documents', icon: FolderOpen },
-    { label: 'Certificates & Expiry', to: '/documents?tab=cert', module: 'documents', icon: Award },
+    r('CRT', 'Certification Tracker', 'documents', Award),
+    { label: 'Certificates & Expiry', to: '/documents?tab=cert', module: 'documents', icon: FileCheck2 },
     { label: 'Plans & Objectives', to: '/plans', module: 'plans', icon: Target },
+    r('RSK', 'Risk Register', 'plans', ShieldAlert),
+    r('OPP', 'Opportunity Register', 'plans', TrendingUp),
     r('ITT', 'ISO 9001:2026 Transition', 'plans', RefreshCw),
   ] },
   { id: 'h6', label: 'Quality Culture & Showcase', color: '#f472b6', items: [
@@ -57,6 +60,7 @@ export const NAV: NavGroup[] = [
     r('MRM', 'Management Review (MRM)', 'culture', Presentation),
     r('MRA', 'MRM Action Tracker', 'culture', ListChecks),
     r('INI', 'Initiatives & Records', 'culture', Rocket),
+    r('NWS', 'Quality News (TRAGS Times)', 'culture', Newspaper),
     r('EVT', 'Quality Events', 'culture', CalendarDays),
     r('AWD', 'Recognition & Awards', 'culture', Trophy),
     r('SPJ', 'Special Jobs', 'culture', Star),

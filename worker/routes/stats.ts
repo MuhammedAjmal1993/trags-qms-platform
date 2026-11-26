@@ -99,6 +99,45 @@ export async function buildDashboard(env: Env, f: Filt) {
       SUM(CASE WHEN sub_category='Complaint' AND NOT (${CLOSED}) THEN 1 ELSE 0 END) AS open_complaints
     FROM records WHERE register='CFB' AND deleted=0 AND plan_date BETWEEN ? AND ? ${extra(f, a)} GROUP BY k`, a);
 
+  // Looker-aligned breakdowns
+  a = [f.from, f.to];
+  const audMatrix = await q(env, `SELECT COALESCE(sub_category,'(blank)') AS k, COUNT(*) AS planned, SUM(CASE WHEN actual_date IS NOT NULL THEN 1 ELSE 0 END) AS actual,
+      SUM(CASE WHEN actual_date IS NULL AND plan_date <= date('now') AND COALESCE(status,'') NOT IN ('Cancelled','Postponed') THEN 1 ELSE 0 END) AS pending,
+      SUM(CASE WHEN COALESCE(status,'') IN ('Cancelled','Postponed') THEN 1 ELSE 0 END) AS cancelled
+    FROM records WHERE register='AUD' AND deleted=0 AND plan_date BETWEEN ? AND ? ${extra(f, a)} GROUP BY k ORDER BY planned DESC`, a);
+  a = [f.from, f.to];
+  const auditors = await q(env, `SELECT TRIM(json_extract(data,'$.auditor')) AS k, COUNT(*) AS n, SUM(CASE WHEN actual_date IS NOT NULL THEN 1 ELSE 0 END) AS done,
+      SUM(COALESCE(json_extract(data,'$.ncr_no'),0)) AS ncr, SUM(COALESCE(json_extract(data,'$.obs_no'),0)) AS obs
+    FROM records WHERE register='AUD' AND deleted=0 AND plan_date BETWEEN ? AND ? AND json_extract(data,'$.auditor') IS NOT NULL ${extra(f, a)} GROUP BY k ORDER BY n DESC LIMIT 15`, a);
+  a = [];
+  const audDue = (await q(env, `SELECT SUM(CASE WHEN actual_date IS NULL AND plan_date BETWEEN date('now') AND date('now','+7 day') THEN 1 ELSE 0 END) AS d7,
+      SUM(CASE WHEN actual_date IS NULL AND plan_date BETWEEN date('now') AND date('now','+30 day') THEN 1 ELSE 0 END) AS d30,
+      SUM(CASE WHEN actual_date BETWEEN date('now','-10 day') AND date('now') THEN 1 ELSE 0 END) AS done10
+    FROM records WHERE register='AUD' AND deleted=0 ${extra(f, a)}`, a))[0] || {};
+  a = [f.from, f.to];
+  const fndByCategory = await q(env, `SELECT COALESCE(json_extract(data,'$.issue_category'),'Not classified') AS k, COALESCE(json_extract(data,'$.issue_group'),'') AS g, COUNT(*) AS n,
+      SUM(CASE WHEN ${CLOSED} THEN 0 ELSE 1 END) AS open
+    FROM records WHERE register='FND' AND deleted=0 AND plan_date BETWEEN ? AND ? ${extra(f, a)} GROUP BY k ORDER BY n DESC LIMIT 15`, a);
+  a = [f.from, f.to];
+  const fndHeat = await q(env, `SELECT COALESCE(json_extract(data,'$.location'),'(blank)') AS k, COALESCE(criticality,'(blank)') AS c, COUNT(*) AS n
+    FROM records WHERE register='FND' AND deleted=0 AND plan_date BETWEEN ? AND ? ${extra(f, a)} GROUP BY k, c`, a);
+  a = [f.from, f.to];
+  const fndActionee = await q(env, `SELECT COALESCE(json_extract(data,'$.actionee'),'(not assigned)') AS k, COUNT(*) AS n, SUM(CASE WHEN ${CLOSED} THEN 0 ELSE 1 END) AS open,
+      SUM(CASE WHEN NOT (${CLOSED}) AND plan_date < date('now','-90 day') THEN 1 ELSE 0 END) AS over90
+    FROM records WHERE register='FND' AND deleted=0 AND plan_date BETWEEN ? AND ? ${extra(f, a)} GROUP BY k ORDER BY open DESC, n DESC LIMIT 15`, a);
+  a = [f.from, f.to];
+  const rfiByDiscipline = await q(env, `SELECT COALESCE(process,'(blank)') AS k, COUNT(*) AS n, SUM(CASE WHEN UPPER(status) LIKE 'REJECT%' THEN 1 ELSE 0 END) AS rej,
+      SUM(CASE WHEN UPPER(status) LIKE 'CANCEL%' THEN 1 ELSE 0 END) AS canc, SUM(CASE WHEN status = 'Approved' THEN 1 ELSE 0 END) AS appr, SUM(CASE WHEN status = 'AWC' THEN 1 ELSE 0 END) AS awc,
+      SUM(CASE WHEN status = 'Open' THEN 1 ELSE 0 END) AS open
+    FROM records WHERE register='RFI' AND deleted=0 AND plan_date BETWEEN ? AND ? ${extra(f, a)} GROUP BY k ORDER BY n DESC LIMIT 15`, a);
+  a = [f.from, f.to];
+  const wrrSites = await q(env, `SELECT COALESCE(process,'(blank)') AS k, SUM(COALESCE(json_extract(data,'$.joints_welded'),0)) AS joints, SUM(COALESCE(json_extract(data,'$.inch_dia'),0)) AS inch,
+      SUM(COALESCE(num3,0)) AS jrt, SUM(COALESCE(num1,0)) AS films, SUM(COALESCE(num2,0)) AS rej, SUM(COALESCE(json_extract(data,'$.lm_welded'),0)) AS lm, COUNT(DISTINCT report_no) AS welders
+    FROM records WHERE register='WRR' AND deleted=0 AND actual_date BETWEEN ? AND ? ${extra(f, a)} GROUP BY k ORDER BY films DESC`, a);
+  const tg = (await q(env, "SELECT value FROM settings WHERE key='kpi_targets'", []))[0]?.value;
+  let targets: Record<string, number> = { audit_completion: 0.9, ncr_closure: 0.9, repair_rate: 0.015, rfi_rejection: 0.02, training_completion: 0.95, customer_satisfaction: 0.95, nfi_closure: 0.9 };
+  try { if (tg) targets = { ...targets, ...JSON.parse(tg) }; } catch { /* keep defaults */ }
+
   const sum = (rows: any[], k: string) => rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
   const planned = sum(audByMonth, 'planned'), conducted = sum(audByMonth, 'conducted');
   const fTotal = sum(fndTotals, 'n'), fClosed = sum(fndTotals, 'closed');
@@ -118,10 +157,11 @@ export async function buildDashboard(env: Env, f: Filt) {
       feedback_total: sum(cfb, 'n'), survey_score: surveys?.survey ?? null, complaints_open: sum(cfb, 'open_complaints'),
       aging: aging[0] || {},
     },
-    audits: { byMonth: audByMonth, bySub: audBySub, upcoming },
-    findings: { byMonth: fndByMonth, totals: fndTotals, bySub: fndBySub, byClient: fndByClient, byProcess: fndByProcess, byExt: fndByExt },
-    inspections: { rfi, nfi, src },
-    welding: { byMonth: wrrByMonth, bySite: wrrBySite, byWelder: wrrByWelder },
+    targets,
+    audits: { byMonth: audByMonth, bySub: audBySub, upcoming, matrix: audMatrix, auditors, due: audDue },
+    findings: { byMonth: fndByMonth, totals: fndTotals, bySub: fndBySub, byClient: fndByClient, byProcess: fndByProcess, byExt: fndByExt, byCategory: fndByCategory, heat: fndHeat, actionee: fndActionee },
+    inspections: { rfi, nfi, src, byDiscipline: rfiByDiscipline },
+    welding: { byMonth: wrrByMonth, bySite: wrrBySite, byWelder: wrrByWelder, sites: wrrSites },
     training: { byMonth: trnByMonth, bySub: trnBySub },
     feedback: cfb,
   };

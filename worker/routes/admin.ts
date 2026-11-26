@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { type AppEnv, HttpError, hashPassword, passwordProblems, requirePerm, logAudit, invalidateConfig, getConfigs } from '../lib';
 import { nextNumber } from '../core';
 import { putFile } from '../storage';
+import { importStatus, importStep } from '../importer';
 
 export const adminRoutes = new Hono<AppEnv>();
 
@@ -136,14 +137,14 @@ adminRoutes.get('/audit-log', async (c) => {
   return c.json(r.results);
 });
 adminRoutes.get('/settings', async (c) => {
-  const r = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key NOT LIKE '%hash%'").all<any>();
+  const r = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key NOT LIKE '%hash%' AND key NOT LIKE 'import_%'").all<any>();
   return c.json(Object.fromEntries(r.results.map((x) => [x.key, x.value])));
 });
 adminRoutes.put('/settings', async (c) => {
   requirePerm(c, 'admin', 'edit');
   const b = await c.req.json<Record<string, string>>();
   for (const [k, v] of Object.entries(b)) {
-    if (k.includes('hash') || ['data_version', 'logo_key', 'setup_code', 'qms_map'].includes(k)) continue;
+    if (k.includes('hash') || k.startsWith('import_') || ['data_version', 'logo_key', 'hero_key', 'setup_code', 'qms_map'].includes(k)) continue;
     await c.env.DB.prepare('INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').bind(k, String(v)).run();
   }
   await logAudit(c, 'settings.update', 'settings', null, Object.keys(b));
@@ -167,3 +168,7 @@ adminRoutes.get('/stats', async (c) => {
   const counts = await c.env.DB.prepare('SELECT register, COUNT(*) AS n FROM records WHERE deleted = 0 GROUP BY register').all<any>();
   return c.json({ registers: [...regs.keys()], counts: counts.results });
 });
+
+// Data import progress (bundled register history) and manual step for administrators.
+adminRoutes.get('/import', async (c) => { requirePerm(c, 'admin', 'view'); return c.json(await importStatus(c.env)); });
+adminRoutes.post('/import/step', async (c) => { requirePerm(c, 'admin', 'edit'); return c.json(await importStep(c.env, 1)); });

@@ -194,7 +194,7 @@ async function fillFromWorkOrder(env: Env, cfg: RegisterConfig, data: Record<str
 }
 
 // Register-specific defaults applied on every write.
-function applyRegisterDefaults(cfg: RegisterConfig, data: Record<string, unknown>): Record<string, unknown> {
+export function applyRegisterDefaults(cfg: RegisterConfig, data: Record<string, unknown>): Record<string, unknown> {
   if (cfg.code === 'FND') {
     if (!data.status) data.status = 'Open';
     if (!data.nature) data.nature = 'NEGETIVE';

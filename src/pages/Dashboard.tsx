@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Camera, Presentation, ClipboardX, AlertTriangle, Clock4, MessageSquareWarning, Flame, CalendarRange, Filter, RotateCcw, ClipboardCheck, Search, GraduationCap, LayoutGrid } from 'lucide-react';
+import { Target, Camera, Presentation, ClipboardX, AlertTriangle, Clock4, MessageSquareWarning, Flame, CalendarRange, Filter, RotateCcw, ClipboardCheck, Search, GraduationCap, LayoutGrid } from 'lucide-react';
 import { qs, useSWR } from '../api';
 import { useApp } from '../ctx';
 import { ChartCard, BarChart, LineChart, DonutChart, Ring, TYPE_COLORS, snapshot, exportChartsToPptx } from '../components/Charts';
@@ -103,6 +103,26 @@ export default function Dashboard() {
             <Stat tone={k.complaints_open ? 'pink' : 'green'} n={<CountUp value={k.complaints_open} />} t="Open complaints" d={`${k.feedback_total} feedback records`} icon={bg(MessageSquareWarning)} onClick={go('/r/CFB')} />
             <Stat tone={k.repair_rate > 0.02 ? 'red' : 'teal'} n={k.repair_rate === null ? '–' : <CountUp value={k.repair_rate * 100} fmt={(n) => n.toFixed(2) + '%'} />} t="Weld repair rate" d={`${k.films_rej} / ${k.films_rt} films · target 2%`} icon={bg(Flame)} onClick={() => setSp({ tab: 'inspection' })} />
           </div>
+          <div className="section-title" style={{ marginTop: 0 }}><h2><Target size={16} color="#1463f3" /> KPI scorecard against 2026 targets</h2></div>
+          <div className="scorecard">
+            {[
+              { l: 'Audit completion', v: k.audit_completion, t: d.targets.audit_completion, hi: true },
+              { l: 'Finding closure', v: k.closure_rate, t: d.targets.ncr_closure, hi: true },
+              { l: 'Weld repair rate', v: k.repair_rate, t: d.targets.repair_rate, hi: false, dp: 2 },
+              { l: 'RFI rejection', v: k.rfi_rejection, t: d.targets.rfi_rejection, hi: false, dp: 2 },
+              { l: 'Training completion', v: k.training_completion, t: d.targets.training_completion, hi: true },
+              { l: 'Customer survey score', v: k.survey_score, t: d.targets.customer_satisfaction, hi: true },
+            ].map((x) => {
+              const ok = x.v === null || x.v === undefined ? null : x.hi ? x.v >= x.t : x.v <= x.t;
+              return (
+                <div key={x.l} className={`sc ${ok === null ? '' : ok ? 'ok' : 'bad'}`}>
+                  <div className="l">{x.l}</div>
+                  <div className="v">{pct(x.v, x.dp || 1)}</div>
+                  <div className="t">Target {x.hi ? '≥' : '≤'} {pct(x.t, x.dp ? 1 : 0)} <span className="chip">{ok === null ? 'No data' : ok ? 'On target' : 'Off target'}</span></div>
+                </div>
+              );
+            })}
+          </div>
           <div className="cards" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', marginBottom: 14 }}>
             {[
               { l: 'Audit completion', v: k.audit_completion, c: '#1463f3', s: `${k.audits_conducted} of ${k.audits_planned} planned` },
@@ -149,6 +169,25 @@ export default function Dashboard() {
             <Kpi l="Overdue" v={<CountUp value={k.audits_overdue} />} tone={k.audits_overdue ? 'red' : 'green'} onClick={go('/r/AUD')} />
             <Kpi l="Upcoming (60 days)" v={<CountUp value={d.audits.upcoming.length} />} tone="violet" />
           </div>
+          <div className="status-board">
+            <Stat tone="amber" n={<CountUp value={d.audits.due?.d7 ?? 0} />} t="Due in next 7 days" icon={bg(CalendarRange)} onClick={go('/r/AUD')} />
+            <Stat tone="blue" n={<CountUp value={d.audits.due?.d30 ?? 0} />} t="Due in next 30 days" icon={bg(CalendarRange)} onClick={go('/r/AUD')} />
+            <Stat tone="green" n={<CountUp value={d.audits.due?.done10 ?? 0} />} t="Conducted in last 10 days" icon={bg(ClipboardCheck)} onClick={go('/r/AUD')} />
+          </div>
+          <div className="cards wide" style={{ marginBottom: 14 }}>
+            <div className="card chart-card" data-title="Planned / Actual / Pending by audit type">
+              <h3>Planned / Actual / Pending by audit type</h3>
+              <table className="plain"><thead><tr><th>Type</th><th className="num">Planned</th><th className="num">Actual</th><th className="num">Pending</th><th className="num">Cancelled / postponed</th><th>Completion</th></tr></thead><tbody>
+                {d.audits.matrix.map((r: any) => <tr key={r.k}><td><b>{r.k}</b></td><td className="num">{r.planned}</td><td className="num">{r.actual}</td><td className="num" style={{ color: r.pending ? '#be123c' : undefined }}>{r.pending}</td><td className="num">{r.cancelled}</td><td style={{ minWidth: 120 }}><div className="meter"><i style={{ width: `${r.planned ? (r.actual / r.planned) * 100 : 0}%`, background: 'var(--grad)' }} /></div><span className="small muted">{pct(r.planned ? r.actual / r.planned : null)}</span></td></tr>)}
+              </tbody></table>
+            </div>
+            <div className="card chart-card" data-title="Auditor summary">
+              <h3>Auditor summary</h3>
+              <div style={{ maxHeight: 300, overflow: 'auto' }}><table className="plain"><thead><tr><th>Auditor</th><th className="num">Planned</th><th className="num">Conducted</th><th className="num">NCR</th><th className="num">OBS</th></tr></thead><tbody>
+                {d.audits.auditors.map((r: any) => <tr key={r.k}><td>{r.k}</td><td className="num">{r.n}</td><td className="num">{r.done}</td><td className="num">{r.ncr}</td><td className="num">{r.obs}</td></tr>)}
+              </tbody></table></div>
+            </div>
+          </div>
           <div className="cards wide">
             {auditPlanVsDone}
             <ChartCard title="Audits by type" sub="Audit / Surveillance / QWA, internal vs external">
@@ -188,6 +227,16 @@ export default function Dashboard() {
             <ChartCard title="Findings: external vs internal">
               <DonutChart labels={d.findings.byExt.map((r: any) => r.k)} data={d.findings.byExt.map((r: any) => r.n)} center="Findings" />
             </ChartCard>
+            <ChartCard title="Issue categories (recurring themes)" sub="Classification from the 5-year analysis and keyword rules">
+              <BarChart horizontal labels={d.findings.byCategory.map((r: any) => r.k)} series={[{ label: 'Findings', data: d.findings.byCategory.map((r: any) => r.n), color: '#1463f3' }, { label: 'Open', data: d.findings.byCategory.map((r: any) => r.open), color: '#f43f5e' }]} />
+            </ChartCard>
+            <HeatCard rows={d.findings.heat} />
+            <div className="card chart-card" data-title="Open findings by actionee">
+              <h3>Open findings by actionee</h3>
+              <div style={{ maxHeight: 300, overflow: 'auto' }}><table className="plain"><thead><tr><th>Actionee</th><th className="num">Raised</th><th className="num">Open</th><th className="num">Open &gt; 90 d</th></tr></thead><tbody>
+                {d.findings.actionee.map((r: any) => <tr key={r.k}><td>{r.k}</td><td className="num">{r.n}</td><td className="num">{r.open ? <span className="chip amber">{r.open}</span> : 0}</td><td className="num">{r.over90 ? <span className="chip red">{r.over90}</span> : 0}</td></tr>)}
+              </tbody></table></div>
+            </div>
           </div>
         </div>
       )}
@@ -214,6 +263,18 @@ export default function Dashboard() {
             <ChartCard title="Welders with most rejected films" sub="Period total">
               <BarChart horizontal labels={d.welding.byWelder.map((r: any) => `${r.welder}${r.name ? ' ' + r.name : ''}`.slice(0, 32))} series={[{ label: 'Rejected films', data: d.welding.byWelder.map((r: any) => r.rej), color: '#f43f5e' }, { label: "Films RT'd", data: d.welding.byWelder.map((r: any) => r.films), color: '#bfd4fb' }]} />
             </ChartCard>
+            <div className="card chart-card" data-title="RFI summary by discipline">
+              <h3>RFI summary by discipline</h3>
+              <div style={{ maxHeight: 300, overflow: 'auto' }}><table className="plain"><thead><tr><th>Discipline</th><th className="num">Raised</th><th className="num">Approved</th><th className="num">AWC</th><th className="num">Rejected</th><th className="num">Cancelled</th><th className="num">Open</th><th className="num">Rejection</th></tr></thead><tbody>
+                {d.inspections.byDiscipline.map((r: any) => <tr key={r.k}><td>{r.k}</td><td className="num">{r.n}</td><td className="num">{r.appr}</td><td className="num">{r.awc}</td><td className="num">{r.rej}</td><td className="num">{r.canc}</td><td className="num">{r.open}</td><td className="num">{pct(r.n - r.canc ? r.rej / (r.n - r.canc) : null, 2)}</td></tr>)}
+              </tbody></table></div>
+            </div>
+            <div className="card chart-card" data-title="Welding summary by site">
+              <h3>Welding summary by site</h3>
+              <div style={{ maxHeight: 300, overflow: 'auto' }}><table className="plain"><thead><tr><th>Site</th><th className="num">Welders</th><th className="num">Joints</th><th className="num">Inch-dia</th><th className="num">Joints RT</th><th className="num">Films RT</th><th className="num">Rejected</th><th className="num">Repair rate</th></tr></thead><tbody>
+                {d.welding.sites.map((r: any) => <tr key={r.k}><td>{r.k}</td><td className="num">{r.welders}</td><td className="num">{Math.round(r.joints).toLocaleString()}</td><td className="num">{Math.round(r.inch).toLocaleString()}</td><td className="num">{Math.round(r.jrt).toLocaleString()}</td><td className="num">{Math.round(r.films).toLocaleString()}</td><td className="num">{r.rej}</td><td className="num">{pct(r.films ? r.rej / r.films : null, 2)}</td></tr>)}
+              </tbody></table></div>
+            </div>
             <ChartCard title="NFI / source inspection status">
               <DonutChart labels={[...d.inspections.nfi.map((r: any) => `NFI ${r.k}`), ...d.inspections.src.map((r: any) => `Source ${r.k}`)]} data={[...d.inspections.nfi.map((r: any) => r.n), ...d.inspections.src.map((r: any) => r.n)]} center="Inspections" />
             </ChartCard>
@@ -242,6 +303,23 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function HeatCard({ rows }: { rows: { k: string; c: string; n: number }[] }) {
+  const crits = ['High', 'Medium', 'Low', '(blank)'].filter((c) => rows.some((r) => r.c === c));
+  const locs = Array.from(new Set(rows.map((r) => r.k)));
+  const tot = (l: string) => rows.filter((r) => r.k === l).reduce((a, r) => a + r.n, 0);
+  locs.sort((a, b) => tot(b) - tot(a));
+  const max = Math.max(1, ...rows.map((r) => r.n));
+  const col = (c: string, n: number) => { const a = 0.12 + (n / max) * 0.8; return c === 'High' ? `rgba(244,63,94,${a})` : c === 'Medium' ? `rgba(245,158,11,${a})` : c === 'Low' ? `rgba(20,184,166,${a})` : `rgba(100,116,139,${a})`; };
+  return (
+    <div className="card chart-card" data-title="Findings heat map: location x criticality">
+      <h3>Findings heat map: location × criticality</h3>
+      <div style={{ maxHeight: 300, overflow: 'auto' }}><table className="plain"><thead><tr><th>Location</th>{crits.map((c) => <th key={c} className="num">{c}</th>)}<th className="num">Total</th></tr></thead><tbody>
+        {locs.slice(0, 14).map((l) => <tr key={l}><td>{l}</td>{crits.map((c) => { const n = rows.find((r) => r.k === l && r.c === c)?.n || 0; return <td key={c} className="num" style={{ background: n ? col(c, n) : undefined, fontWeight: n ? 700 : 400 }}>{n || ''}</td>; })}<td className="num"><b>{tot(l)}</b></td></tr>)}
+      </tbody></table></div>
     </div>
   );
 }

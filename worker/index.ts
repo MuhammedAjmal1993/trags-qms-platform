@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { importStep } from './importer';
 import { getCookie } from 'hono/cookie';
 import { type AppEnv, HttpError } from './lib';
 import { ensureSchema } from './core';
@@ -61,6 +62,13 @@ export default {
   fetch(req: Request, env: AppEnv['Bindings'], ctx: ExecutionContext) {
     const url = new URL(req.url);
     if (url.pathname.startsWith('/api/')) return app.fetch(req, env, ctx);
+    if (url.pathname.startsWith('/import/')) return new Response('Not found', { status: 404 });
     return env.ASSETS.fetch(req);
+  },
+  async scheduled(_ev: ScheduledController, env: AppEnv['Bindings'], ctx: ExecutionContext) {
+    ctx.waitUntil((async () => {
+      await ensureSchema(env);
+      await importStep(env, 2);
+    })());
   },
 };

@@ -7,6 +7,7 @@ import { RecordForm } from '../components/RecordForm';
 import type { RegisterConfig, Column } from '../../shared/registers';
 import { mapHeaders, normHeader } from '../../shared/logic';
 import { readWorkbook, analyseSheets, readRows, readValidationLists, matchListToColumn } from '../lib/excel';
+import { parseAuditWorkbook } from '../lib/auditbook';
 
 const DOC_KINDS = [
   ['auto', 'Detect automatically'], ['register', 'Excel register (structured import)'], ['audit_notification', 'Audit notification'],
@@ -34,6 +35,15 @@ export default function Ingest() {
         const fd = new FormData();
         fd.append('file', file); fd.append('kind', k);
         if (sp.get('target')) fd.append('target', sp.get('target')!);
+        if (isXlsx && !sp.get('target') && (kind === 'auto' || kind === 'audit_notification' || kind === 'findings_report')) {
+          setBusy(`Reading ${file.name}…`);
+          const book = await parseAuditWorkbook(file).catch(() => null);
+          if (book) {
+            fd.set('kind', 'audit_notification'); fd.append('proposals', JSON.stringify(book.proposals));
+            const r = await api.form('/api/uploads', fd);
+            toast(`${book.summary} extracted for review.`); setReview(r.id); continue;
+          }
+        }
         if (k !== 'register') setBusy(`Extracting ${file.name} with Workers AI… (up to a minute for scans)`);
         const r = await api.form('/api/uploads', fd);
         if (k === 'register') setExcel({ file, uploadId: r.id });

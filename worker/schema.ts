@@ -179,4 +179,11 @@ export const MIGRATIONS: { id: number; sql: string[] }[] = [
       `INSERT OR IGNORE INTO settings (key, value) VALUES ('public_show_stats', 'Yes')`,
     ],
   },
+  {
+    id: 4,
+    sql: [
+      `DROP INDEX IF EXISTS ix_records_uid`,
+      `CREATE INDEX IF NOT EXISTS ix_records_uid ON records(register, uid) WHERE uid IS NOT NULL`,
+    ],
+  },
 ];
