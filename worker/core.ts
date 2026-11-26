@@ -1,4 +1,5 @@
 import { MIGRATIONS } from './schema';
+import WO_SEED from '../shared/wo-seed.json';
 import { REGISTERS, NUMBERING_SEED, ROLE_SEED, type RegisterConfig } from '../shared/registers';
 import { normaliseRow, promote, formatPattern, parsePattern, toIsoDate } from '../shared/logic';
 import { type Env, type SessionUser, getConfig, HttpError, invalidateConfig } from './lib';
@@ -28,6 +29,8 @@ async function seed(env: Env) {
   for (const n of NUMBERING_SEED) {
     stmts.push(env.DB.prepare('INSERT OR IGNORE INTO numbering_series (code, label, pattern, register, field, pad) VALUES (?,?,?,?,?,?)').bind(n.code, n.label, n.pattern, n.register, n.field, n.pad));
   }
+  const woCount = await env.DB.prepare('SELECT COUNT(*) AS n FROM work_orders').first<{ n: number }>();
+  if (!woCount?.n) for (const w of WO_SEED as any[]) stmts.push(env.DB.prepare("INSERT OR IGNORE INTO work_orders (won, client, project_no, contract_no, title, status, notes) VALUES (?,?,?,?,?, 'Active', ?)").bind(w.won, w.client, w.project_no ?? null, w.contract_no ?? null, w.title, `Seeded: ${w.note}`));
   stmts.push(env.DB.prepare("INSERT OR IGNORE INTO templates (code, label, kind) VALUES ('F271','F271 R1 Observation Disposition Form','pdf-form'),('NCR','NCR Form (TRAGS format)','pdf-form')"));
   await env.DB.batch(stmts);
   invalidateConfig();
