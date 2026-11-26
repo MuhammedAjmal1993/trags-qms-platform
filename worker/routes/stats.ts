@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { type AppEnv, type Env, HttpError, requirePerm, can } from '../lib';
 import { cached } from '../cache';
+import { buildSection, welderCard } from './sections';
 const ck = (c: any) => new URL(c.req.url).pathname + new URL(c.req.url).search;
 
 export const statRoutes = new Hono<AppEnv>();
@@ -134,6 +135,15 @@ export async function buildDashboard(env: Env, f: Filt) {
   const wrrSites = await q(env, `SELECT COALESCE(process,'(blank)') AS k, SUM(COALESCE(json_extract(data,'$.joints_welded'),0)) AS joints, SUM(COALESCE(json_extract(data,'$.inch_dia'),0)) AS inch,
       SUM(COALESCE(num3,0)) AS jrt, SUM(COALESCE(num1,0)) AS films, SUM(COALESCE(num2,0)) AS rej, SUM(COALESCE(json_extract(data,'$.lm_welded'),0)) AS lm, COUNT(DISTINCT report_no) AS welders
     FROM records WHERE register='WRR' AND deleted=0 AND actual_date BETWEEN ? AND ? ${extra(f, a)} GROUP BY k ORDER BY films DESC`, a);
+  a = [f.from, f.to];
+  const audSummary = await q(env, `SELECT COALESCE(sub_category,'(blank)') AS k, SUM(CASE WHEN UPPER(finding_type)='NCR' THEN 1 ELSE 0 END) AS ncr,
+      SUM(CASE WHEN UPPER(finding_type)='OBSERVATION' THEN 1 ELSE 0 END) AS obs, SUM(CASE WHEN UPPER(finding_type)='AFI' THEN 1 ELSE 0 END) AS afi,
+      SUM(CASE WHEN UPPER(finding_type)='NCR' AND NOT (${CLOSED}) THEN 1 ELSE 0 END) AS open_ncr, SUM(CASE WHEN UPPER(finding_type)='OBSERVATION' AND NOT (${CLOSED}) THEN 1 ELSE 0 END) AS open_obs,
+      COUNT(DISTINCT report_no) AS reports
+    FROM records WHERE register='FND' AND deleted=0 AND plan_date BETWEEN ? AND ? ${extra(f, a)} GROUP BY k ORDER BY reports DESC`, a);
+  a = [f.from, f.to];
+  const nfiK = (await q(env, `SELECT COUNT(*) AS n, SUM(CASE WHEN status='Closed' THEN 1 ELSE 0 END) AS closed, SUM(CASE WHEN status IN ('Cancelled','Rejected') THEN 1 ELSE 0 END) AS canc
+    FROM records WHERE register='NFI' AND deleted=0 AND COALESCE(plan_date, actual_date) BETWEEN ? AND ? ${f.won ? 'AND won = ?' : ''}`, f.won ? [...a, f.won] : a))[0] || {};
   const tg = (await q(env, "SELECT value FROM settings WHERE key='kpi_targets'", []))[0]?.value;
   let targets: Record<string, number> = { audit_completion: 0.9, ncr_closure: 0.9, repair_rate: 0.015, rfi_rejection: 0.02, training_completion: 0.95, customer_satisfaction: 0.95, nfi_closure: 0.9 };
   try { if (tg) targets = { ...targets, ...JSON.parse(tg) }; } catch { /* keep defaults */ }
@@ -156,7 +166,10 @@ export async function buildDashboard(env: Env, f: Filt) {
       trainings_planned: trnPlanned, trainings_conducted: trnDone, training_completion: trnPlanned ? trnDone / trnPlanned : null, participants: sum(trnByMonth, 'participants'),
       feedback_total: sum(cfb, 'n'), survey_score: surveys?.survey ?? null, complaints_open: sum(cfb, 'open_complaints'),
       aging: aging[0] || {},
+      ncr_closure: (() => { const r: any = fndTotals.find((x: any) => x.t === 'NCR'); return r?.n ? r.closed / r.n : null; })(),
+      nfi_total: nfiK.n || 0, nfi_closed: nfiK.closed || 0, nfi_closure: nfiK.n ? (nfiK.closed || 0) / nfiK.n : null,
     },
+    audSummary,
     targets,
     audits: { byMonth: audByMonth, bySub: audBySub, upcoming, matrix: audMatrix, auditors, due: audDue },
     findings: { byMonth: fndByMonth, totals: fndTotals, bySub: fndBySub, byClient: fndByClient, byProcess: fndByProcess, byExt: fndByExt, byCategory: fndByCategory, heat: fndHeat, actionee: fndActionee },
@@ -166,6 +179,20 @@ export async function buildDashboard(env: Env, f: Filt) {
     feedback: cfb,
   };
 }
+
+statRoutes.get('/section/:name', async (c) => {
+  requirePerm(c, 'dashboard', 'view');
+  return cached(c.env, ck(c), async () => JSON.stringify(await buildSection(c.env, c.req.param('name'), filt(c.req.query()))));
+});
+
+statRoutes.get('/welder/:id', async (c) => {
+  requirePerm(c, 'dashboard', 'view');
+  return cached(c.env, ck(c), async () => {
+    const card = await welderCard(c.env, c.req.param('id').trim());
+    if (!card) throw new HttpError(404, 'No welding, award or qualification record for this welder ID.');
+    return JSON.stringify(card);
+  });
+});
 
 statRoutes.get('/dashboard', async (c) => {
   requirePerm(c, 'dashboard', 'view');

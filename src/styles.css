@@ -549,3 +549,12 @@ table.grid.heat td:first-child { text-align: left; }
 .scorecard .t { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 6px; }
 .scorecard .sc.ok .chip { background: #dcfce7; color: #047857; } .scorecard .sc.bad .chip { background: #ffe4e9; color: #be123c; }
 table.plain th.num, table.plain td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Looker-style summary bands (label + tiles) */
+.band { display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 14px; background: var(--card, #fff); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; box-shadow: var(--shadow); }
+.band-l { font-weight: 800; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--navy1, #0b1f3a); }
+.band .band-tiles { margin-bottom: 0; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.band .stat .n { font-size: 26px; }
+@media (max-width: 720px) { .band { grid-template-columns: 1fr; } }
+.tabs { overflow-x: auto; scrollbar-width: thin; }
+.tabs button { white-space: nowrap; }

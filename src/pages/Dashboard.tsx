@@ -1,12 +1,13 @@
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Target, Camera, Presentation, ClipboardX, AlertTriangle, Clock4, MessageSquareWarning, Flame, CalendarRange, Filter, RotateCcw, ClipboardCheck, Search, GraduationCap, LayoutGrid } from 'lucide-react';
+import { Target, Camera, Presentation, ClipboardX, AlertTriangle, Clock4, MessageSquareWarning, Flame, CalendarRange, Filter, RotateCcw, ClipboardCheck, Search, GraduationCap, LayoutGrid, PackageCheck, MessageSquareHeart, Award, History } from 'lucide-react';
 import { qs, useSWR } from '../api';
 import { useApp } from '../ctx';
 import { ChartCard, BarChart, LineChart, DonutChart, Ring, TYPE_COLORS, snapshot, exportChartsToPptx } from '../components/Charts';
 import { pct, Spinner, statusChip, Stat, Kpi, CountUp, PageSkeleton } from '../components/ui';
 import { MONTHS } from '../../shared/registers';
 import { fmtDate } from '../../shared/logic';
+import { WeldingTab, RfiTab, NfiTab, TrainingTab, FeedbackTab, AwardsTab, TrendTab, AuditSummary } from './DashSections';
 
 export function monthsBetween(from: string, to: string): string[] {
   const out: string[] = [];
@@ -48,9 +49,15 @@ const TABS = [
   { id: 'overview', label: 'Overview', icon: LayoutGrid },
   { id: 'audits', label: 'Audits', icon: ClipboardCheck },
   { id: 'findings', label: 'Findings', icon: AlertTriangle },
-  { id: 'inspection', label: 'Inspection & Welding', icon: Search },
-  { id: 'people', label: 'Training & Feedback', icon: GraduationCap },
+  { id: 'welding', label: 'Welding', icon: Flame },
+  { id: 'rfi', label: 'RFI', icon: Search },
+  { id: 'nfi', label: 'Source inspection', icon: PackageCheck },
+  { id: 'training', label: 'Training', icon: GraduationCap },
+  { id: 'feedback', label: 'Customer feedback', icon: MessageSquareHeart },
+  { id: 'awards', label: 'Trade awards', icon: Award },
+  { id: 'trend', label: 'Findings: 5 years', icon: History },
 ];
+const LEGACY: Record<string, string> = { inspection: 'welding', people: 'training' };
 
 export default function Dashboard() {
   const flt = useFilters();
@@ -58,7 +65,7 @@ export default function Dashboard() {
   const { can } = useApp();
   const nav = useNavigate();
   const [sp, setSp] = useSearchParams();
-  const tab = sp.get('tab') || 'overview';
+  const tab = LEGACY[sp.get('tab') || ''] || sp.get('tab') || 'overview';
   const { data: d, loading } = useSWR<any>(`/api/stats/dashboard${qs(f)}`);
   const { data: home } = useSWR<any>('/api/stats/home');
   const root = useRef<HTMLDivElement>(null);
@@ -102,17 +109,19 @@ export default function Dashboard() {
             <Stat tone={k.findings_open ? 'amber' : 'green'} n={<CountUp value={k.findings_open} />} t="Findings open (period)" d={`NCR ${k.ncr} · OBS ${k.obs} · AFI ${k.afi} raised`} icon={bg(AlertTriangle)} onClick={go('/disposition')} />
             <Stat tone={k.aging?.over90 ? 'red' : 'green'} pulse={!!k.aging?.over90} n={<CountUp value={k.aging?.over90 ?? 0} />} t="Open over 90 days" d={`${k.aging?.open ?? 0} open in total, all years`} icon={bg(Clock4)} onClick={go('/disposition')} />
             <Stat tone={k.complaints_open ? 'pink' : 'green'} n={<CountUp value={k.complaints_open} />} t="Open complaints" d={`${k.feedback_total} feedback records`} icon={bg(MessageSquareWarning)} onClick={go('/r/CFB')} />
-            <Stat tone={k.repair_rate > wrT ? 'red' : 'teal'} n={k.repair_rate === null ? '–' : <CountUp value={k.repair_rate * 100} fmt={(n) => n.toFixed(2) + '%'} />} t="Weld repair rate" d={`${k.films_rej} / ${k.films_rt} films · target ≤ ${(wrT * 100).toFixed(1)}%`} icon={bg(Flame)} onClick={() => setSp({ tab: 'inspection' })} />
+            <Stat tone={k.repair_rate > wrT ? 'red' : 'teal'} n={k.repair_rate === null ? '–' : <CountUp value={k.repair_rate * 100} fmt={(n) => n.toFixed(2) + '%'} />} t="Weld repair rate" d={`${k.films_rej} / ${k.films_rt} films · target ≤ ${(wrT * 100).toFixed(1)}%`} icon={bg(Flame)} onClick={() => setSp({ tab: 'welding' })} />
           </div>
           <div className="section-title" style={{ marginTop: 0 }}><h2><Target size={16} color="#1463f3" /> KPI scorecard against 2026 targets</h2></div>
           <div className="scorecard">
             {[
               { l: 'Audit completion', v: k.audit_completion, t: d.targets.audit_completion, hi: true },
-              { l: 'Finding closure', v: k.closure_rate, t: d.targets.ncr_closure, hi: true },
+              { l: 'NCR closure', v: k.ncr_closure, t: d.targets.ncr_closure, hi: true },
+              { l: 'All-finding closure', v: k.closure_rate, t: d.targets.ncr_closure, hi: true },
               { l: 'Weld repair rate', v: k.repair_rate, t: d.targets.repair_rate, hi: false, dp: 2 },
               { l: 'RFI rejection', v: k.rfi_rejection, t: d.targets.rfi_rejection, hi: false, dp: 2 },
               { l: 'Training completion', v: k.training_completion, t: d.targets.training_completion, hi: true },
               { l: 'Customer survey score', v: k.survey_score, t: d.targets.customer_satisfaction, hi: true },
+              { l: 'NFI closure', v: k.nfi_closure, t: d.targets.nfi_closure, hi: true },
             ].map((x) => {
               const ok = x.v === null || x.v === undefined ? null : x.hi ? x.v >= x.t : x.v <= x.t;
               return (
@@ -124,6 +133,7 @@ export default function Dashboard() {
               );
             })}
           </div>
+          <AuditSummary rows={d.audSummary || []} />
           <div className="cards" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', marginBottom: 14 }}>
             {[
               { l: 'Audit completion', v: k.audit_completion, c: '#1463f3', s: `${k.audits_conducted} of ${k.audits_planned} planned` },
@@ -242,68 +252,13 @@ export default function Dashboard() {
         </div>
       )}
 
-      {tab === 'inspection' && (
-        <div className="stagger" key="in">
-          <div className="kpis">
-            <Kpi l="RFIs" v={<CountUp value={k.rfi_total} />} icon={<Search size={16} />} />
-            <Kpi l="RFI rejection" v={pct(k.rfi_rejection)} tone={k.rfi_rejection > 0.1 ? 'red' : 'green'} />
-            <Kpi l="Films RT'd" v={<CountUp value={k.films_rt} />} tone="violet" />
-            <Kpi l="Weld repair rate" v={pct(k.repair_rate, 2)} s={`${k.films_rej} rejected · target ≤ ${(wrT * 100).toFixed(1)}%`} tone={k.repair_rate > wrT ? 'red' : 'green'} />
-          </div>
-          <div className="cards wide">
-            <ChartCard title="RFI volume and rejections">
-              <BarChart labels={months.map(mLabel)} series={[{ label: 'RFIs', data: months.map((m) => by(d.inspections.rfi, m, 'n')), color: '#bfd4fb' }, { label: 'Rejected', data: months.map((m) => by(d.inspections.rfi, m, 'rej')), color: '#f43f5e' }]} />
-            </ChartCard>
-            <ChartCard title="RFI rejection rate trend">
-              <LineChart pct labels={months.map(mLabel)} series={[{ label: 'Rejection rate', data: rfiRate, color: '#f43f5e' }]} />
-            </ChartCard>
-            {wrr}
-            <ChartCard title="Weld repair rate by site">
-              <BarChart pct labels={d.welding.bySite.map((r: any) => r.k)} series={[{ label: 'Repair rate', data: d.welding.bySite.map((r: any) => (r.films ? r.rej / r.films : 0)), color: '#7c3aed' }]} />
-            </ChartCard>
-            <ChartCard title="Welders with most rejected films" sub="Period total">
-              <BarChart horizontal labels={d.welding.byWelder.map((r: any) => `${r.welder}${r.name ? ' ' + r.name : ''}`.slice(0, 32))} series={[{ label: 'Rejected films', data: d.welding.byWelder.map((r: any) => r.rej), color: '#f43f5e' }, { label: "Films RT'd", data: d.welding.byWelder.map((r: any) => r.films), color: '#bfd4fb' }]} />
-            </ChartCard>
-            <div className="card chart-card" data-title="RFI summary by discipline">
-              <h3>RFI summary by discipline</h3>
-              <div style={{ maxHeight: 300, overflow: 'auto' }}><table className="plain"><thead><tr><th>Discipline</th><th className="num">Raised</th><th className="num">Approved</th><th className="num">AWC</th><th className="num">Rejected</th><th className="num">Cancelled</th><th className="num">Open</th><th className="num">Rejection</th></tr></thead><tbody>
-                {d.inspections.byDiscipline.map((r: any) => <tr key={r.k}><td>{r.k}</td><td className="num">{r.n}</td><td className="num">{r.appr}</td><td className="num">{r.awc}</td><td className="num">{r.rej}</td><td className="num">{r.canc}</td><td className="num">{r.open}</td><td className="num">{pct(r.n - r.canc ? r.rej / (r.n - r.canc) : null, 2)}</td></tr>)}
-              </tbody></table></div>
-            </div>
-            <div className="card chart-card" data-title="Welding summary by site">
-              <h3>Welding summary by site</h3>
-              <div style={{ maxHeight: 300, overflow: 'auto' }}><table className="plain"><thead><tr><th>Site</th><th className="num">Welders</th><th className="num">Joints</th><th className="num">Inch-dia</th><th className="num">Joints RT</th><th className="num">Films RT</th><th className="num">Rejected</th><th className="num">Repair rate</th></tr></thead><tbody>
-                {d.welding.sites.map((r: any) => <tr key={r.k}><td>{r.k}</td><td className="num">{r.welders}</td><td className="num">{Math.round(r.joints).toLocaleString()}</td><td className="num">{Math.round(r.inch).toLocaleString()}</td><td className="num">{Math.round(r.jrt).toLocaleString()}</td><td className="num">{Math.round(r.films).toLocaleString()}</td><td className="num">{r.rej}</td><td className="num">{pct(r.films ? r.rej / r.films : null, 2)}</td></tr>)}
-              </tbody></table></div>
-            </div>
-            <ChartCard title="NFI / source inspection status">
-              <DonutChart labels={[...d.inspections.nfi.map((r: any) => `NFI ${r.k}`), ...d.inspections.src.map((r: any) => `Source ${r.k}`)]} data={[...d.inspections.nfi.map((r: any) => r.n), ...d.inspections.src.map((r: any) => r.n)]} center="Inspections" />
-            </ChartCard>
-          </div>
-        </div>
-      )}
-
-      {tab === 'people' && (
-        <div className="stagger" key="pe">
-          <div className="kpis">
-            <Kpi l="Trainings planned" v={<CountUp value={k.trainings_planned} />} s={`${k.trainings_conducted} conducted`} icon={<GraduationCap size={16} />} />
-            <Kpi l="Training completion" v={pct(k.training_completion)} bar={k.training_completion} tone="violet" />
-            <Kpi l="Participants" v={<CountUp value={k.participants} />} tone="teal" />
-            <Kpi l="Customer feedback" v={<CountUp value={k.feedback_total} />} s={`${k.complaints_open} open complaints`} tone={k.complaints_open ? 'amber' : 'green'} onClick={go('/r/CFB')} />
-          </div>
-          <div className="cards wide">
-            <ChartCard title="Training planned vs conducted">
-              <BarChart labels={months.map(mLabel)} series={[{ label: 'Planned', data: months.map((m) => by(d.training.byMonth, m, 'planned')), color: '#ddd6fe' }, { label: 'Conducted', data: months.map((m) => by(d.training.byMonth, m, 'conducted')), color: '#7c3aed' }]} />
-            </ChartCard>
-            <ChartCard title="Training participants by month">
-              <LineChart labels={months.map(mLabel)} series={[{ label: 'Participants', data: months.map((m) => by(d.training.byMonth, m, 'participants')), color: '#14b8a6' }]} />
-            </ChartCard>
-            <ChartCard title="Customer feedback by type">
-              <DonutChart labels={d.feedback.map((r: any) => r.k)} data={d.feedback.map((r: any) => r.n)} colors={['#10b981', '#f43f5e', '#1463f3', '#f59e0b', '#7c3aed']} center="Records" />
-            </ChartCard>
-          </div>
-        </div>
-      )}
+      {tab === 'welding' && <WeldingTab f={f} months={months} target={wrT} />}
+      {tab === 'rfi' && <RfiTab f={f} d={d} months={months} />}
+      {tab === 'nfi' && <NfiTab f={f} months={months} />}
+      {tab === 'training' && <TrainingTab f={f} d={d} months={months} />}
+      {tab === 'feedback' && <FeedbackTab f={f} d={d} months={months} />}
+      {tab === 'awards' && <AwardsTab f={f} />}
+      {tab === 'trend' && <TrendTab f={f} />}
     </div>
   );
 }
