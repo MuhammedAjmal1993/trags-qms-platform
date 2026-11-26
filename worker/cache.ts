@@ -17,7 +17,7 @@ export async function bumpVersion(env: Env) {
 }
 
 // Bump CODE_VERSION whenever the shape of a cached response changes, so old entries are not served.
-const CODE_VERSION = 'r3';
+const CODE_VERSION = 'r4';
 export async function cached(env: Env, key0: string, build: () => Promise<string>): Promise<Response> {
   const key = `${CODE_VERSION}:${key0}`;
   const v = await dataVersion(env);

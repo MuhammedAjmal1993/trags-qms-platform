@@ -152,7 +152,7 @@ export async function buildDashboard(env: Env, f: Filt) {
       findings_total: fTotal, findings_open: fTotal - fClosed, closure_rate: fTotal ? fClosed / fTotal : null,
       ncr: fndTotals.find((r: any) => r.t === 'NCR')?.n ?? 0, obs: fndTotals.find((r: any) => r.t === 'OBSERVATION')?.n ?? 0, afi: fndTotals.find((r: any) => r.t === 'AFI')?.n ?? 0,
       rfi_total: rfiN, rfi_rejection: rfiN - rfiCanc ? rfiRej / (rfiN - rfiCanc) : null,
-      films_rt: films, films_rej: filmsRej, repair_rate: films ? filmsRej / films : null,
+      films_rt: Math.round(films), films_rej: Math.round(filmsRej), repair_rate: films ? filmsRej / films : null,
       trainings_planned: trnPlanned, trainings_conducted: trnDone, training_completion: trnPlanned ? trnDone / trnPlanned : null, participants: sum(trnByMonth, 'participants'),
       feedback_total: sum(cfb, 'n'), survey_score: surveys?.survey ?? null, complaints_open: sum(cfb, 'open_complaints'),
       aging: aging[0] || {},
