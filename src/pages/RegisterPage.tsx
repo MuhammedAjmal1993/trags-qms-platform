@@ -8,7 +8,7 @@ import { Grid, type Row } from '../components/Grid';
 import { RecordForm, missingRequired } from '../components/RecordForm';
 import { Drawer, Spinner, Confirm, Modal, PageSkeleton } from '../components/ui';
 import { exportRegister } from '../lib/excel';
-import { fillPdfForm, printFindingForm, F271_DEFAULT_MAP } from '../lib/forms';
+import { fillPdfForm, printFindingForm, F271_DEFAULT_MAP, F257_DEFAULT_MAP, F21_CELLS, fillXlsxForm, formData } from '../lib/forms';
 import { compressImage } from '../lib/images';
 
 const CLOSED_RE = /^(closed|cancelled|completed|conducted|done|verified|implemented|approved|accepted|held|minutes issued|awc|inactive)$/i;
@@ -164,19 +164,28 @@ function RecordDrawer({ cfg, row, wos, preset, onClose, onSaved }: { cfg: Regist
     const fd = new FormData(); fd.append('file', await compressImage(f));
     try { await api.form(`/api/item/${row!.id}/attachments`, fd); toast('Attachment uploaded.'); loadDetail(); } catch (e: any) { toast(e.message, 'err'); }
   };
-  const genForm = async (code: 'F271' | 'NCR') => {
+  // Controlled TRAGS formats: F21 NCR (Excel), F257 Observation Report (Surveillance / QWA), F271 (other observations).
+  const genForm = async (want: 'OBS' | 'NCR') => {
     const tpls = await api.get('/api/templates');
-    const t = tpls.find((x: any) => x.code === code);
-    const name = `${code === 'F271' ? 'F271 OBS' : 'NCR'} ${val.finding_no || val.uid || ''}`.trim() + '.pdf';
-    if (t?.r2_key) {
-      const map = Array.isArray(t.field_map) && t.field_map.length ? t.field_map : code === 'F271' ? F271_DEFAULT_MAP : [];
-      if (!map.length) return toast('NCR template has no field map yet. Set it in Admin → Form templates.', 'err');
-      const w = await fillPdfForm(t.r2_key, map, val, name);
-      toast(w.length ? `Form generated with warnings: ${w.join(' ')}` : 'Form generated.', w.length ? 'err' : 'ok');
-    } else {
-      printFindingForm(code === 'NCR' ? 'NCR' : 'OBS', val);
-      toast('Controlled template not uploaded yet; TRAGS print layout opened.');
-    }
+    const find = (c: string) => tpls.find((x: any) => x.code === c && x.r2_key);
+    const data = formData(val);
+    const id = val.finding_no || val.uid || '';
+    try {
+      if (want === 'NCR') {
+        const t = find('NCR');
+        if (t && /\.xlsx?$/i.test(t.filename || '')) { await fillXlsxForm(t.r2_key, Array.isArray(t.field_map) && t.field_map.length ? t.field_map : F21_CELLS, data, `NCR ${id}.xlsx`.trim()); return toast('NCR generated in the F21 format. Section C and signatures stay for QA/QC.'); }
+        if (t && Array.isArray(t.field_map) && t.field_map.length) { const w = await fillPdfForm(t.r2_key, t.field_map, data, `NCR ${id}.pdf`); return toast(w.length ? `Form generated with warnings: ${w.join(' ')}` : 'Form generated.', w.length ? 'err' : 'ok'); }
+        printFindingForm('NCR', val); return toast('Controlled NCR template not uploaded; TRAGS print layout opened.');
+      }
+      const f257 = ['Surveillance', 'QWA'].includes(val.sub_category) ? find('F257') : null;
+      const t = f257 || find('F271') || find('F257');
+      if (t) {
+        const map = Array.isArray(t.field_map) && t.field_map.length ? t.field_map : t.code === 'F257' ? F257_DEFAULT_MAP : F271_DEFAULT_MAP;
+        const w = await fillPdfForm(t.r2_key, map, data, `${t.code} ${id}.pdf`.trim());
+        return toast(w.length ? `Form generated with warnings: ${w.join(' ')}` : `Generated in the ${t.code} format.`, w.length ? 'err' : 'ok');
+      }
+      printFindingForm('OBS', val); toast('Controlled observation template not uploaded; TRAGS print layout opened.');
+    } catch (e: any) { toast(e.message, 'err'); }
   };
 
   const flagsCount = Object.keys(val._flags || {}).length;
@@ -185,7 +194,7 @@ function RecordDrawer({ cfg, row, wos, preset, onClose, onSaved }: { cfg: Regist
       footer={<>
         {row && can(module, 'delete') && <button className="danger" onClick={() => setConfirmDel(true)}>Delete</button>}
         <span style={{ flex: 1 }} />
-        {cfg.code === 'FND' && <><button onClick={() => genForm('F271')}>Observation form (F271)</button><button onClick={() => genForm('NCR')}>NCR form</button></>}
+        {cfg.code === 'FND' && <><button onClick={() => genForm('OBS')}>Observation form (F257 / F271)</button><button onClick={() => genForm('NCR')}>NCR form (F21)</button></>}
         <button onClick={onClose}>Close</button>
         {editable && <button className="primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>}
       </>}>

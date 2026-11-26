@@ -4,7 +4,7 @@ import { fileUrl } from '../api';
 import { saveBlob } from './excel';
 
 // Field map entry: fills one PDF form field from a register value.
-export interface FieldMapEntry { field: string; source: string; type: 'text' | 'date' | 'check'; equals?: string; format?: string }
+export interface FieldMapEntry { field: string; source: string; type: 'text' | 'date' | 'check' | 'choice'; equals?: string; format?: string; values?: Record<string, string> }
 
 // Verified against TRAGS F271 R1 (Format No. 271, Dt 13.10.2021). Section C stays blank for the QE/QM.
 export const F271_DEFAULT_MAP: FieldMapEntry[] = [
@@ -22,6 +22,57 @@ export const F271_DEFAULT_MAP: FieldMapEntry[] = [
   { field: 'Text19', source: 'corrective_action', type: 'text' },
 ];
 
+// TRAGS F257 R2 Observation Report (Surveillance & Quality Walk), fields read from the controlled form.
+// Recommendation and the associated-document tick boxes stay for the raiser to complete.
+export const F257_DEFAULT_MAP: FieldMapEntry[] = [
+  { field: 'Dropdown1', source: 'sub_category', type: 'choice', values: { Surveillance: 'Survillance', QWA: 'Quality Walk' } },
+  { field: 'Reference No', source: 'report_no', type: 'text' },
+  { field: 'Select', source: 'issue_date', type: 'date', format: 'dd-MMM-yyyy' },
+  { field: 'Zonal Framework', source: 'process', type: 'text' },
+  { field: 'Location', source: 'location', type: 'text' },
+  { field: 'Work Order', source: 'won', type: 'text' },
+  { field: 'Name', source: 'raised_by', type: 'text' },
+  { field: 'NoRow1', source: '=1', type: 'text' },
+  { field: 'Text2', source: 'finding_no', type: 'text' },
+  { field: 'Dropdown3', source: 'finding_type', type: 'choice', values: { NCR: 'NCR', OBSERVATION: 'Observation', AFI: 'OFI' } },
+  { field: 'Description of FindingRow1', source: 'description', type: 'text' },
+  { field: 'Action ByRow1', source: 'actionee', type: 'text' },
+  { field: 'Root CauseRow1', source: 'root_cause', type: 'text' },
+  { field: 'CorrectionCorrective Action TakenRow1', source: 'ca_taken', type: 'text' },
+];
+
+// TRAGS F21 R8 Non Conformance Report (Excel): cell addresses of the value areas. Sections C and signatures stay blank.
+export const F21_CELLS: { cell: string; source: string; date?: boolean }[] = [
+  { cell: 'C5', source: 'finding_no' }, { cell: 'I5', source: 'issue_date', date: true }, { cell: 'N5', source: 'report_no' },
+  { cell: 'F6', source: 'process_won' }, { cell: 'N6', source: 'location' },
+  { cell: 'A12', source: 'description' }, { cell: 'B20', source: 'raised_by' }, { cell: 'O20', source: 'recipient' },
+  { cell: 'A27', source: 'correction' }, { cell: 'P25', source: 'correction_target', date: true },
+  { cell: 'A40', source: 'why_1' }, { cell: 'I40', source: 'why_2' }, { cell: 'A44', source: 'why_3' }, { cell: 'I44', source: 'why_4' }, { cell: 'A48', source: 'why_5' }, { cell: 'I48', source: 'root_cause' },
+  { cell: 'A55', source: 'corrective_action' }, { cell: 'O53', source: 'ca_target', date: true },
+];
+
+export function formData(d: Record<string, any>) {
+  return { ...d, ca_taken: [d.correction, d.corrective_action].filter(Boolean).join('\n'), process_won: [d.process, d.won && `WON ${d.won}`, d.client].filter(Boolean).join(' · ') };
+}
+
+// Fill the controlled Excel NCR (F21) and download it; formatting and logo stay as in the template.
+export async function fillXlsxForm(templateKey: string, cells: { cell: string; source: string; date?: boolean }[], data: Record<string, any>, filename: string) {
+  const m: any = await import('exceljs');
+  const X = m.default || m;
+  const res = await fetch(fileUrl(templateKey), { credentials: 'same-origin' });
+  if (!res.ok) throw new Error('Template file could not be loaded.');
+  const wb = new X.Workbook();
+  await wb.xlsx.load(await res.arrayBuffer());
+  const ws = wb.worksheets[0];
+  for (const c of cells) {
+    const v = data[c.source];
+    if (v === null || v === undefined || v === '') continue;
+    ws.getCell(c.cell).value = c.date ? fmt(toIsoDate(v)) : String(v);
+  }
+  const buf = await wb.xlsx.writeBuffer();
+  saveBlob(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename);
+}
+
 function fmt(iso: string | null, f = 'dd-MMM-yyyy') {
   if (!iso) return '';
   const [y, m, d] = iso.split('-');
@@ -36,7 +87,7 @@ export async function listPdfFields(bytes: ArrayBuffer): Promise<{ name: string;
 
 // Fill the controlled TRAGS PDF form; the output stays editable for signatures and Section C.
 export async function fillPdfForm(templateKey: string, map: FieldMapEntry[], data: Record<string, any>, filename: string): Promise<string[]> {
-  const { PDFDocument, PDFTextField, PDFCheckBox } = await import('pdf-lib');
+  const { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown } = await import('pdf-lib');
   const res = await fetch(fileUrl(templateKey), { credentials: 'same-origin' });
   if (!res.ok) throw new Error('Template file could not be loaded.');
   const pdf = await PDFDocument.load(await res.arrayBuffer(), { ignoreEncryption: true });
@@ -45,16 +96,24 @@ export async function fillPdfForm(templateKey: string, map: FieldMapEntry[], dat
   for (const m of map) {
     let field: any;
     try { field = form.getField(m.field); } catch { warnings.push(`Field "${m.field}" not found in template.`); continue; }
-    const raw = data[m.source];
+    const raw = m.source.startsWith('=') ? m.source.slice(1) : data[m.source];
+    if (m.type === 'choice') {
+      const v = m.values?.[String(raw ?? '').trim()] ?? m.values?.[String(raw ?? '').trim().toUpperCase()];
+      if (v && field instanceof PDFDropdown) { try { field.select(v); } catch { warnings.push(`"${v}" is not an option of ${m.field}.`); } }
+      continue;
+    }
     if (m.type === 'check') {
       if (!(field instanceof PDFCheckBox)) continue;
       if (raw && String(raw).trim().toUpperCase() === String(m.equals).toUpperCase()) field.check(); else field.uncheck();
     } else if (field instanceof PDFTextField) {
       const v = m.type === 'date' ? fmt(toIsoDate(raw), m.format) : raw === null || raw === undefined ? '' : String(raw);
-      field.setText(v);
+      const max = field.getMaxLength();
+      field.setText(max !== undefined && v.length > max ? v.slice(0, max) : v);
       if (v.length > 400) { try { field.setFontSize(6); } catch { /* keep default */ } }
     }
   }
+  // Rich-text fields (as in F257) block appearance updates in pdf-lib; plain text keeps the form editable.
+  for (const f of form.getFields()) if (f instanceof PDFTextField) { try { if (f.isRichFormatted()) f.disableRichFormatting(); } catch { /* leave as is */ } }
   const out = await pdf.save({ updateFieldAppearances: true });
   saveBlob(new Blob([out as BlobPart], { type: 'application/pdf' }), filename);
   return warnings;
