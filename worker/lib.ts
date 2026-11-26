@@ -3,7 +3,7 @@ import type { RegisterConfig } from '../shared/registers';
 
 export interface Env {
   DB: D1Database;
-  FILES: R2Bucket;
+  FILES: R2Bucket; // optional: absent on the free plan, files then live in D1 (storage.ts)
   AI: Ai;
   ASSETS: Fetcher;
   APP_NAME: string;
@@ -54,11 +54,21 @@ export function randomToken(bytes = 32): string {
 export async function sha256(s: string): Promise<string> {
   return b64(await crypto.subtle.digest('SHA-256', enc.encode(s)));
 }
-export async function hashPassword(password: string, saltB64?: string): Promise<{ hash: string; salt: string }> {
+// PBKDF2-SHA256. The iteration count is stored with the hash ("p<iter>$<hash>") so it can be
+// raised later (e.g. on the paid plan) and old hashes keep verifying.
+export const PBKDF2_ITER = 60000;
+export async function hashPassword(password: string, saltB64?: string, iterations = PBKDF2_ITER): Promise<{ hash: string; salt: string }> {
   const salt = saltB64 ? Uint8Array.from(atob(saltB64), (ch) => ch.charCodeAt(0)) : crypto.getRandomValues(new Uint8Array(16));
   const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 100000 }, key, 256);
-  return { hash: b64(bits), salt: b64(salt) };
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, key, 256);
+  return { hash: `p${iterations}$${b64(bits)}`, salt: b64(salt) };
+}
+export async function verifyPassword(password: string, stored: string, saltB64: string): Promise<boolean> {
+  const m = stored.match(/^p(\d+)\$/);
+  const iter = m ? Number(m[1]) : 100000;
+  const { hash } = await hashPassword(password, saltB64, iter);
+  const cmp = m ? hash : hash.replace(/^p\d+\$/, '');
+  return timingSafeEqual(cmp, stored);
 }
 export function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;

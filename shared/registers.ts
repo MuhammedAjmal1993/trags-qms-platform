@@ -40,7 +40,7 @@ export interface RegisterConfig {
 
 const PRIMARY = ['QMS', 'PROJECT'];
 const EXTINT = ['INTERNAL', 'EXTERNAL'];
-const SUBCAT_AUDIT = ['Audit', 'Surveillance', 'QWA', 'Inspection'];
+const SUBCAT_AUDIT = ['Audit', 'Surveillance', 'QWA', 'Inspection', 'Customer Complaint', 'Other'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export { MONTHS };
 
@@ -108,6 +108,16 @@ export const REGISTERS: RegisterConfig[] = [
       { key: 'correction', label: 'Correction', type: 'textarea' },
       { key: 'root_cause', label: 'Root Cause', type: 'textarea' },
       { key: 'corrective_action', label: 'Corrective Action', type: 'textarea' },
+      { key: 'rca_category', label: 'Root Cause Category', type: 'select', options: ['Man (people/competence)', 'Method (procedure/process)', 'Material', 'Machine (equipment)', 'Measurement (inspection/IMTE)', 'Environment', 'Management (planning/resources)', 'Communication', 'Subcontractor/Supplier'], hidden: true },
+      { key: 'why_1', label: 'Why 1', type: 'text', hidden: true },
+      { key: 'why_2', label: 'Why 2', type: 'text', hidden: true },
+      { key: 'why_3', label: 'Why 3', type: 'text', hidden: true },
+      { key: 'why_4', label: 'Why 4', type: 'text', hidden: true },
+      { key: 'why_5', label: 'Why 5', type: 'text', hidden: true },
+      { key: 'correction_target', label: 'Correction Target Date', type: 'date', hidden: true },
+      { key: 'ca_target', label: 'Corrective Action Target Date', type: 'date', hidden: true },
+      { key: 'effectiveness_date', label: 'Effectiveness Check Date', type: 'date', hidden: true },
+      { key: 'effectiveness_result', label: 'Effectiveness Result', type: 'select', options: ['Effective', 'Not effective', 'Pending'], hidden: true },
       { key: 'ca_approval_date', label: 'Corrective Action Approval Date', type: 'date', role: 'due_date' },
       { key: 'status', label: 'Status', type: 'select', role: 'status', options: ['Open', 'Closed', 'Ongoing', 'Cancelled'], required: true },
       { key: 'closeout_date', label: 'Closeout Date', type: 'date', role: 'close_date' },
@@ -336,6 +346,204 @@ export const REGISTERS: RegisterConfig[] = [
       { key: 'remarks', label: 'Remarks', type: 'textarea' },
     ],
   },
+// ---- Hub 3: ASME capability ----
+  {
+    code: 'ASM', name: 'ASME Capabilities & Stamps', module: 'Inspection & Welding', sort: 11, keyFields: ['stamp'],
+    statusOptions: ['Valid', 'Renewal due', 'Expired'], closedStatuses: [],
+    columns: [
+      { key: 'stamp', label: 'Stamp / Certificate', type: 'text', role: 'report_no', required: true },
+      { key: 'code', label: 'Code / Section', type: 'text', role: 'category' },
+      { key: 'scope', label: 'Scope of Work', type: 'textarea', role: 'description' },
+      { key: 'cert_no', label: 'Certificate No.', type: 'text' },
+      { key: 'issue_date', label: 'Issue Date', type: 'date', role: 'plan_date' },
+      { key: 'expiry_date', label: 'Expiry Date', type: 'date', role: 'due_date' },
+      { key: 'ai_agency', label: 'Authorized Inspection Agency', type: 'text' },
+      { key: 'responsible', label: 'Responsible (ASME QA)', type: 'text' },
+      { key: 'status', label: 'Status', type: 'select', role: 'status', options: ['Valid', 'Renewal due', 'Expired'] },
+      { key: 'remarks', label: 'Remarks', type: 'textarea' },
+    ],
+  },
+  // ---- Hub 4: People and Training ----
+  {
+    code: 'PPL', name: 'QA/QC Resource Master List', module: 'People & Training', sort: 12, keyFields: ['emp_no'],
+    statusOptions: ['Active', 'New joiner', 'On leave', 'Transferred', 'Resigned', 'Terminated'], closedStatuses: ['Resigned', 'Terminated', 'Transferred'],
+    columns: [
+      { key: 'emp_no', label: 'Emp No', type: 'text', role: 'report_no', required: true },
+      { key: 'name', label: 'Name', type: 'text', role: 'description', required: true },
+      { key: 'designation', label: 'Designation', type: 'select', role: 'category', options: ['QA/QC Manager', 'QA/QC Coordinator', 'QA/QC Lead', 'QA/QC Engineer', 'QC Inspector', 'Welding Inspector', 'NDT Technician', 'Coating Inspector', 'E&I Inspector', 'Document Controller', 'Other'] },
+      { key: 'discipline', label: 'Discipline', type: 'select', role: 'sub_category', options: ['Mechanical', 'Welding', 'Piping', 'Civil', 'Electrical', 'Instrumentation', 'Coating', 'NDT', 'QMS', 'Document Control'] },
+      { key: 'site', label: 'Site / Location', type: 'select', role: 'process', options: ['Doha', 'Mesaieed', 'Ras Laffan', 'Dukhan', 'Offshore', 'Workshop'] },
+      { key: 'won', label: 'WON / Project', type: 'text', role: 'won' },
+      { key: 'reports_to', label: 'Reports To (Emp No)', type: 'text' },
+      { key: 'join_date', label: 'Join Date', type: 'date', role: 'plan_date' },
+      { key: 'exit_date', label: 'Resignation / Exit Date', type: 'date', role: 'close_date' },
+      { key: 'status', label: 'Status', type: 'select', role: 'status', options: ['Active', 'New joiner', 'On leave', 'Transferred', 'Resigned', 'Terminated'], required: true },
+      { key: 'qualification', label: 'Qualification', type: 'text' },
+      { key: 'certifications', label: 'Key Certifications', type: 'text' },
+      { key: 'experience_yrs', label: 'Experience (Years)', type: 'number', role: 'num1' },
+      { key: 'work_email', label: 'Work Email', type: 'text' },
+      { key: 'remarks', label: 'Remarks', type: 'textarea' },
+    ],
+  },
+  {
+    code: 'PCR', name: 'Personnel Certifications', module: 'People & Training', sort: 13, keyFields: ['emp_no', 'cert_type', 'cert_no'],
+    statusOptions: ['Valid', 'Expiring', 'Expired'], closedStatuses: [],
+    columns: [
+      { key: 'emp_no', label: 'Emp No', type: 'text', required: true },
+      { key: 'name', label: 'Name', type: 'text', role: 'description', required: true },
+      { key: 'cert_type', label: 'Certification', type: 'select', role: 'category', required: true, options: ['CSWIP 3.1', 'CSWIP 3.2', 'AWS CWI', 'ASNT Level II', 'ASNT Level III', 'PCN', 'NACE / AMPP CIP', 'BGAS', 'API 510', 'API 570', 'API 653', 'IRCA Lead Auditor', 'ASQ CQA', 'NEBOSH IGC', 'Lean Six Sigma', 'Other'] },
+      { key: 'cert_no', label: 'Certificate No.', type: 'text', role: 'report_no' },
+      { key: 'body', label: 'Issuing Body', type: 'text' },
+      { key: 'issue_date', label: 'Issue Date', type: 'date', role: 'plan_date' },
+      { key: 'expiry_date', label: 'Expiry Date', type: 'date', role: 'due_date' },
+      { key: 'remarks', label: 'Remarks', type: 'textarea' },
+    ],
+  },
+  {
+    code: 'TLB', name: 'Training Library', module: 'People & Training', sort: 14, keyFields: ['ref'],
+    statusOptions: ['Current', 'Under review', 'Archived'], closedStatuses: ['Archived'],
+    columns: [
+      { key: 'ref', label: 'Ref', type: 'text', role: 'report_no', required: true },
+      { key: 'title', label: 'Title', type: 'text', role: 'description', required: true },
+      { key: 'category', label: 'Category', type: 'select', role: 'category', options: ['QMS & ISO', 'Welding', 'NDT', 'Inspection & Testing', 'Coating', 'Piping', 'Mechanical', 'Electrical & Instrumentation', 'Civil', 'Document Control', 'Procurement & Materials', 'HSE', 'Client Requirements', 'Toolbox Talk', 'Lessons Learnt', 'Other'] },
+      { key: 'sub_category', label: 'Sub Category', type: 'text', role: 'sub_category' },
+      { key: 'format', label: 'Format', type: 'select', options: ['PPT', 'PDF', 'Video', 'Word', 'Excel', 'Link'] },
+      { key: 'duration_hrs', label: 'Duration (Hrs)', type: 'number', role: 'num1' },
+      { key: 'level', label: 'Level', type: 'select', options: ['Awareness', 'Basic', 'Intermediate', 'Advanced'] },
+      { key: 'audience', label: 'Target Audience', type: 'text' },
+      { key: 'link', label: 'Link / Location', type: 'text' },
+      { key: 'tags', label: 'Keywords', type: 'text' },
+      { key: 'owner', label: 'Owner', type: 'text' },
+      { key: 'reviewed', label: 'Last Reviewed', type: 'date', role: 'plan_date' },
+      { key: 'status', label: 'Status', type: 'select', role: 'status', options: ['Current', 'Under review', 'Archived'] },
+    ],
+  },
+  // ---- Hub 5: ISO 9001 transition ----
+  {
+    code: 'ITT', name: 'ISO 9001:2026 Transition Tracker', module: 'QMS Documents & Plans', sort: 15, keyFields: ['ref'],
+    statusOptions: ['Not started', 'In progress', 'Done', 'Verified'], closedStatuses: ['Done', 'Verified'],
+    columns: [
+      { key: 'ref', label: 'Ref', type: 'text', role: 'report_no', required: true },
+      { key: 'clause', label: 'Clause / Area', type: 'text', role: 'category' },
+      { key: 'change', label: 'Change in ISO 9001:2026', type: 'textarea', role: 'description', required: true },
+      { key: 'gap', label: 'Gap in TRAGS QMS', type: 'textarea' },
+      { key: 'affected_docs', label: 'Affected Documents (QM-01 / QSP)', type: 'text', role: 'process' },
+      { key: 'action', label: 'Action', type: 'textarea' },
+      { key: 'owner', label: 'Owner', type: 'text' },
+      { key: 'target', label: 'Target Date', type: 'date', role: 'due_date' },
+      { key: 'status', label: 'Status', type: 'select', role: 'status', options: ['Not started', 'In progress', 'Done', 'Verified'] },
+      { key: 'done_date', label: 'Completion Date', type: 'date', role: 'close_date' },
+      { key: 'evidence', label: 'Evidence', type: 'text' },
+    ],
+  },
+  // ---- Hub 6: Quality culture and showcase ----
+  {
+    code: 'MRM', name: 'Management Review Meetings', module: 'Quality Culture', sort: 16, keyFields: ['mrm_no'],
+    statusOptions: ['Planned', 'Held', 'Minutes issued', 'Closed'], closedStatuses: ['Minutes issued', 'Closed'],
+    columns: [
+      { key: 'mrm_no', label: 'MRM No.', type: 'text', role: 'report_no', required: true },
+      { key: 'plan_date', label: 'Planned Date', type: 'date', role: 'plan_date', required: true },
+      { key: 'actual_date', label: 'Held On', type: 'date', role: 'actual_date' },
+      { key: 'chair', label: 'Chaired By', type: 'text' },
+      { key: 'attendees', label: 'Attendees', type: 'textarea' },
+      { key: 'agenda', label: 'Agenda / Inputs (ISO 9001 9.3.2)', type: 'textarea', role: 'description' },
+      { key: 'decisions', label: 'Outputs / Decisions (9.3.3)', type: 'textarea' },
+      { key: 'minutes_ref', label: 'Minutes Ref (F37)', type: 'text' },
+      { key: 'status', label: 'Status', type: 'select', role: 'status', options: ['Planned', 'Held', 'Minutes issued', 'Closed'] },
+    ],
+  },
+  {
+    code: 'MRA', name: 'MRM Action Tracker', module: 'Quality Culture', sort: 17, keyFields: ['action_no'],
+    statusOptions: ['Open', 'In progress', 'Closed'], closedStatuses: ['Closed'],
+    columns: [
+      { key: 'action_no', label: 'Action No.', type: 'text', role: 'report_no', required: true },
+      { key: 'mrm_no', label: 'MRM No.', type: 'text', role: 'category' },
+      { key: 'action', label: 'Action', type: 'textarea', role: 'description', required: true },
+      { key: 'department', label: 'Department', type: 'text', role: 'process' },
+      { key: 'owner', label: 'Owner', type: 'text' },
+      { key: 'raised_date', label: 'Raised Date', type: 'date', role: 'plan_date' },
+      { key: 'target', label: 'Target Date', type: 'date', role: 'due_date' },
+      { key: 'status', label: 'Status', type: 'select', role: 'status', options: ['Open', 'In progress', 'Closed'] },
+      { key: 'closed_date', label: 'Closed Date', type: 'date', role: 'close_date' },
+      { key: 'update', label: 'Latest Update', type: 'textarea' },
+    ],
+  },
+  {
+    code: 'INI', name: 'Quality Initiatives & Department Records', module: 'Quality Culture', sort: 18, uidSeries: 'INI', keyFields: ['ref'],
+    statusOptions: ['Planned', 'Ongoing', 'Completed', 'On hold'], closedStatuses: ['Completed'],
+    columns: [
+      { key: 'ref', label: 'Ref', type: 'text', role: 'report_no' },
+      { key: 'type', label: 'Type', type: 'select', role: 'category', required: true, options: ['Quality Initiative', 'Continual Improvement', 'Contingency / Standby Training', 'Quality Memo', 'Achievement', 'Client Appreciation', 'Zero-Defect Record', 'Other'] },
+      { key: 'title', label: 'Title', type: 'text', role: 'description', required: true },
+      { key: 'won', label: 'WON', type: 'text', role: 'won' },
+      { key: 'start_date', label: 'Date / Start', type: 'date', role: 'plan_date', required: true },
+      { key: 'end_date', label: 'End Date', type: 'date', role: 'close_date' },
+      { key: 'owner', label: 'Owner', type: 'text' },
+      { key: 'process', label: 'Process / Department', type: 'text', role: 'process' },
+      { key: 'details', label: 'Details', type: 'textarea' },
+      { key: 'benefit', label: 'Benefit / Result', type: 'textarea' },
+      { key: 'participants', label: 'Participants', type: 'number', role: 'num1' },
+      { key: 'status', label: 'Status', type: 'select', role: 'status', options: ['Planned', 'Ongoing', 'Completed', 'On hold'] },
+      { key: 'showcase', label: 'Show on Showcase', type: 'select', options: ['Yes', 'No'] },
+    ],
+  },
+  {
+    code: 'EVT', name: 'Quality Events Calendar', module: 'Quality Culture', sort: 19, keyFields: ['title', 'date'],
+    statusOptions: ['Planned', 'Done', 'Cancelled'], closedStatuses: ['Done', 'Cancelled'],
+    columns: [
+      { key: 'title', label: 'Event', type: 'text', role: 'description', required: true },
+      { key: 'type', label: 'Type', type: 'select', role: 'category', options: ['World Quality Week', 'Awareness Campaign', 'Recognition Ceremony', 'Client Visit', 'Certification Audit', 'MRM', 'Training Event', 'Other'] },
+      { key: 'date', label: 'Date', type: 'date', role: 'plan_date', required: true },
+      { key: 'end_date', label: 'End Date', type: 'date' },
+      { key: 'location', label: 'Location', type: 'text', role: 'process' },
+      { key: 'owner', label: 'Owner', type: 'text' },
+      { key: 'participants', label: 'Participants', type: 'number', role: 'num1' },
+      { key: 'details', label: 'Details / Activities', type: 'textarea' },
+      { key: 'status', label: 'Status', type: 'select', role: 'status', options: ['Planned', 'Done', 'Cancelled'] },
+    ],
+  },
+  {
+    code: 'AWD', name: 'Recognition & Awards', module: 'Quality Culture', sort: 20, keyFields: ['award', 'period', 'winner'],
+    columns: [
+      { key: 'award', label: 'Award', type: 'select', role: 'category', required: true, options: ['Quality Performer of the Year', 'Quality Performer of the Month', 'Welder of the Month', 'Inspector of the Month', 'Site Recognition', 'Client Award', 'Other'] },
+      { key: 'period', label: 'Period', type: 'text', role: 'report_no', required: true },
+      { key: 'winner', label: 'Winner', type: 'text', role: 'description', required: true },
+      { key: 'emp_no', label: 'Emp No / Welder ID', type: 'text' },
+      { key: 'won', label: 'WON', type: 'text', role: 'won' },
+      { key: 'site', label: 'Site', type: 'text', role: 'process' },
+      { key: 'date', label: 'Award Date', type: 'date', role: 'plan_date', required: true },
+      { key: 'criteria', label: 'Criteria / Reason', type: 'textarea' },
+      { key: 'nominees', label: 'Nominees', type: 'textarea' },
+    ],
+  },
+  {
+    code: 'SPJ', name: 'Special Jobs Showcase', module: 'Quality Culture', sort: 21, keyFields: ['ref'],
+    statusOptions: ['Ongoing', 'Completed'], closedStatuses: ['Completed'],
+    columns: [
+      { key: 'ref', label: 'Ref', type: 'text', role: 'report_no', required: true },
+      { key: 'title', label: 'Job Title', type: 'text', role: 'description', required: true },
+      { key: 'won', label: 'WON', type: 'text', role: 'won' },
+      { key: 'client', label: 'Client', type: 'text', role: 'client' },
+      { key: 'date', label: 'Completion Date', type: 'date', role: 'plan_date' },
+      { key: 'category', label: 'Category', type: 'select', role: 'category', options: ['Fabrication', 'Repair', 'Shutdown', 'Hot Tap', 'Heat Treatment', 'ASME Stamped', 'Pressure Test', 'Special Welding', 'Other'] },
+      { key: 'scope', label: 'Scope & Technical Details', type: 'textarea' },
+      { key: 'approvals', label: 'Client / TPI Approvals', type: 'textarea' },
+      { key: 'result', label: 'Quality Result', type: 'textarea' },
+      { key: 'status', label: 'Status', type: 'select', role: 'status', options: ['Ongoing', 'Completed'] },
+    ],
+  },
+  {
+    code: 'PHO', name: 'Photo Library', module: 'Quality Culture', sort: 22, keyFields: ['title', 'date'],
+    columns: [
+      { key: 'title', label: 'Album / Title', type: 'text', role: 'description', required: true },
+      { key: 'type', label: 'Type', type: 'select', role: 'category', required: true, options: ['Audit', 'Surveillance', 'Quality Walkabout', 'Inspection', 'Training', 'Event', 'Award', 'Special Job', 'Other'] },
+      { key: 'date', label: 'Date', type: 'date', role: 'plan_date', required: true },
+      { key: 'won', label: 'WON', type: 'text', role: 'won' },
+      { key: 'location', label: 'Location', type: 'text', role: 'process' },
+      { key: 'linked_ref', label: 'Linked Ref (UID / Report No)', type: 'text', role: 'report_no' },
+      { key: 'notes', label: 'Notes', type: 'textarea' },
+    ],
+  },
 ];
 
 export const NUMBERING_SEED = [
@@ -350,10 +558,13 @@ export const NUMBERING_SEED = [
   { code: 'NCR', label: 'Internal NCR No.', pattern: '{YY}/NCR/{NNNN}', register: 'FND', field: 'finding_no', pad: 4 },
   { code: 'OBS', label: 'Internal Observation No.', pattern: '{YY}/OBS/{NNNN}', register: 'FND', field: 'finding_no', pad: 4 },
   { code: 'CFR', label: 'Customer Feedback Report No.', pattern: '{NN}-CFR-{YY}', register: 'CFB', field: 'report_no', pad: 2 },
+  { code: 'CAR', label: 'Internal CAR No.', pattern: '{YY}/CAR/{NNNN}', register: 'FND', field: 'finding_no', pad: 4 },
+  { code: 'MRA', label: 'MRM Action No.', pattern: 'MRA-{NNN}-{YY}', register: 'MRA', field: 'action_no', pad: 3 },
+  { code: 'INI', label: 'Quality Initiative Ref', pattern: 'QI-{NNN}-{YY}', register: 'INI', field: 'ref', pad: 3 },
 ];
 
 // Roles and permission matrix. Modules map to menu groups; actions per module.
-export const MODULES = ['dashboard', 'workorders', 'audits', 'findings', 'inspections', 'welding', 'training', 'feedback', 'documents', 'plans', 'reports', 'ingest', 'admin'] as const;
+export const MODULES = ['dashboard', 'insights', 'workorders', 'audits', 'findings', 'inspections', 'welding', 'people', 'training', 'feedback', 'documents', 'plans', 'culture', 'reports', 'ingest', 'admin'] as const;
 export const ACTIONS = ['view', 'create', 'edit', 'delete', 'export', 'approve'] as const;
 export type Perms = Record<string, string[]>;
 
@@ -362,12 +573,14 @@ export const ROLE_SEED: { name: string; description: string; permissions: Perms 
   { name: 'Administrator', description: 'Full access including users, roles and configuration', permissions: all([...ACTIONS]) },
   { name: 'QA/QC Manager', description: 'All quality modules, approvals and sign-off; no user admin', permissions: { ...all(['view', 'create', 'edit', 'delete', 'export', 'approve']), admin: [] } },
   { name: 'QA/QC Engineer', description: 'Create and edit records in all quality modules; export', permissions: { ...all(['view', 'create', 'edit', 'export']), admin: [] } },
-  { name: 'Site Inspector', description: 'Enter inspections, findings, weld data and uploads from site', permissions: { dashboard: ['view'], workorders: ['view'], audits: ['view'], findings: ['view', 'create'], inspections: ['view', 'create', 'edit'], welding: ['view', 'create', 'edit'], training: ['view'], feedback: ['view'], documents: ['view'], plans: ['view'], reports: ['view'], ingest: ['view', 'create'], admin: [] } },
+  { name: 'Site Inspector', description: 'Enter inspections, findings, weld data and uploads from site', permissions: { dashboard: ['view'], insights: ['view'], people: ['view'], culture: ['view', 'create'], workorders: ['view'], audits: ['view'], findings: ['view', 'create'], inspections: ['view', 'create', 'edit'], welding: ['view', 'create', 'edit'], training: ['view'], feedback: ['view'], documents: ['view'], plans: ['view'], reports: ['view'], ingest: ['view', 'create'], admin: [] } },
   { name: 'General Manager', description: 'Read access to all modules, report export and objectives sign-off', permissions: { ...all(['view', 'export']), plans: ['view', 'export', 'approve'], admin: [] } },
   { name: 'Viewer', description: 'Read-only access', permissions: { ...all(['view']), admin: [] } },
 ];
 
 export const MODULE_OF_REGISTER: Record<string, string> = {
   AUD: 'audits', FND: 'findings', LLR: 'findings', NFI: 'inspections', RFI: 'inspections', SRC: 'inspections',
-  WLD: 'welding', WRR: 'welding', TRN: 'training', CFB: 'feedback',
+  WLD: 'welding', WRR: 'welding', TRN: 'training', CFB: 'feedback', ASM: 'inspections',
+  PPL: 'people', PCR: 'people', TLB: 'training', ITT: 'plans',
+  MRM: 'culture', MRA: 'culture', INI: 'culture', EVT: 'culture', AWD: 'culture', SPJ: 'culture', PHO: 'culture',
 };

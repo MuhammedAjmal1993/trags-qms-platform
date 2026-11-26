@@ -11,7 +11,7 @@ import { readWorkbook, analyseSheets, readRows, readValidationLists, matchListTo
 const DOC_KINDS = [
   ['auto', 'Detect automatically'], ['register', 'Excel register (structured import)'], ['audit_notification', 'Audit notification'],
   ['findings_report', 'Audit / surveillance / QWA / NCR report'], ['inspection_report', 'Inspection report (source / NFI / RFI)'],
-  ['site_report', 'Site quality report'], ['training_record', 'Training record'], ['customer_feedback', 'Customer feedback'],
+  ['site_report', 'Site quality report'], ['training_record', 'Training record'], ['customer_feedback', 'Customer feedback'], ['hr_update', 'Joiner / resignation / transfer notice'],
 ];
 
 export default function Ingest() {

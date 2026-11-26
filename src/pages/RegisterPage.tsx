@@ -9,6 +9,7 @@ import { RecordForm, missingRequired } from '../components/RecordForm';
 import { Drawer, Spinner, Confirm, Modal } from '../components/ui';
 import { exportRegister } from '../lib/excel';
 import { fillPdfForm, printFindingForm, F271_DEFAULT_MAP } from '../lib/forms';
+import { compressImage } from '../lib/images';
 
 export default function RegisterPage() {
   const { code = '' } = useParams();
@@ -20,7 +21,8 @@ export default function RegisterPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState(sp.get('q') || '');
-  const [year, setYear] = useState(sp.get('year') || '');
+  const BIG = ['WRR', 'RFI', 'NFI'];
+  const [year, setYear] = useState(sp.get('year') ?? (BIG.includes(code) ? String(new Date().getFullYear()) : ''));
   const [won, setWon] = useState(sp.get('won') || '');
   const [open, setOpen] = useState<Row | 'new' | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
@@ -43,6 +45,7 @@ export default function RegisterPage() {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { api.get('/api/stats/filters').then((f) => setWos(f.workorders)).catch(() => {}); }, []);
   useEffect(() => { const id = sp.get('id'); if (id && rows.length) { const r = rows.find((x) => String(x.id) === id); if (r) setOpen(r); } }, [rows, sp]);
+  useEffect(() => { if (sp.get('new')) setOpen('new'); }, [sp]);
 
   const years = useMemo(() => {
     const ys = new Set<string>();
@@ -79,7 +82,7 @@ export default function RegisterPage() {
       </div>
       <Grid cfg={cfg} rows={rows} hidden={hidden} globalQ={q} onOpen={(r) => setOpen(r)} />
 
-      {open && <RecordDrawer cfg={cfg} row={open === 'new' ? null : open} wos={wos} onClose={() => setOpen(null)}
+      {open && <RecordDrawer cfg={cfg} row={open === 'new' ? null : open} preset={sp.get('new') || ''} wos={wos} onClose={() => setOpen(null)}
         onSaved={() => { setOpen(null); load(); refreshRegisters(); }} />}
       {showCols && (
         <Modal title="Visible columns" onClose={() => setShowCols(false)}>
@@ -91,10 +94,10 @@ export default function RegisterPage() {
   );
 }
 
-function RecordDrawer({ cfg, row, wos, onClose, onSaved }: { cfg: RegisterConfig; row: Row | null; wos: any[]; onClose: () => void; onSaved: () => void }) {
+function RecordDrawer({ cfg, row, wos, preset, onClose, onSaved }: { cfg: RegisterConfig; row: Row | null; wos: any[]; preset?: string; onClose: () => void; onSaved: () => void }) {
   const { can, toast } = useApp();
   const module = MODULE_OF_REGISTER[cfg.code];
-  const [val, setVal] = useState<Record<string, any>>(row ? { ...row.data } : defaults(cfg));
+  const [val, setVal] = useState<Record<string, any>>(row ? { ...row.data } : defaults(cfg, preset));
   const [detail, setDetail] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -119,7 +122,7 @@ function RecordDrawer({ cfg, row, wos, onClose, onSaved }: { cfg: RegisterConfig
     try { await api.del(`/api/item/${row!.id}`); toast('Record deleted (restorable from Deleted).'); onSaved(); } catch (e: any) { toast(e.message, 'err'); }
   };
   const attach = async (f: File) => {
-    const fd = new FormData(); fd.append('file', f);
+    const fd = new FormData(); fd.append('file', await compressImage(f));
     try { await api.form(`/api/item/${row!.id}/attachments`, fd); toast('Attachment uploaded.'); loadDetail(); } catch (e: any) { toast(e.message, 'err'); }
   };
   const genForm = async (code: 'F271' | 'NCR') => {
@@ -150,6 +153,7 @@ function RecordDrawer({ cfg, row, wos, onClose, onSaved }: { cfg: RegisterConfig
       {flagsCount > 0 && <div className="card" style={{ borderColor: '#f3c0c0', background: '#fff7f7', marginBottom: 10 }}><b className="red">{flagsCount} field(s) need review.</b> <span className="small">Red fields were inferred or conflict with another register. Editing a field clears its flag.</span></div>}
       {row && <div className="tabs"><button className={tab === 'form' ? 'on' : ''} onClick={() => setTab('form')}>Record</button><button className={tab === 'files' ? 'on' : ''} onClick={() => setTab('files')}>Attachments {detail?.attachments?.length ? `(${detail.attachments.length})` : ''}</button><button className={tab === 'history' ? 'on' : ''} onClick={() => setTab('history')}>History</button></div>}
       {tab === 'form' && <>
+        {val._autonum && !val.finding_no && <div className="muted small" style={{ marginBottom: 8 }}>The {val._autonum} number is assigned automatically on save (TRAGS numbering). Enter the client's number instead for external findings.</div>}
         <RecordForm cfg={cfg} value={val} onChange={setVal} readOnly={!editable} workorders={wos} />
         {cfg.code !== 'WLD' && val.won && <div style={{ marginTop: 12 }}><a href={`/wo/${val.won}`}>Open work order {val.won} drill-down →</a></div>}
       </>}
@@ -176,9 +180,10 @@ function RecordDrawer({ cfg, row, wos, onClose, onSaved }: { cfg: RegisterConfig
   );
 }
 
-function defaults(cfg: RegisterConfig): Record<string, any> {
+function defaults(cfg: RegisterConfig, preset?: string): Record<string, any> {
   const d: Record<string, any> = {};
   if (cfg.code === 'FND') Object.assign(d, { status: 'Open', nature: 'NEGETIVE' });
+  if (cfg.code === 'FND' && (preset === 'NCR' || preset === 'OBSERVATION')) Object.assign(d, { finding_type: preset, ext_int: 'INTERNAL', primary: 'PROJECT', issue_date: new Date().toISOString().slice(0, 10), _autonum: preset === 'NCR' ? 'NCR' : 'OBS' });
   if (cfg.code === 'AUD') Object.assign(d, { status: 'Planned' });
   if (cfg.code === 'TRN') Object.assign(d, { ext_int: 'INTERNAL' });
   return d;

@@ -3,6 +3,7 @@ import { type AppEnv, type Env, HttpError, requirePerm, logAudit, getConfig, get
 import { insertRecord, updateRecord, nextNumber, runSyncRules } from '../core';
 import { MODULE_OF_REGISTER, type RegisterConfig } from '../../shared/registers';
 import { normaliseRow, promote } from '../../shared/logic';
+import { putFile, hasR2 } from '../storage';
 
 export const recordRoutes = new Hono<AppEnv>();
 
@@ -43,7 +44,9 @@ recordRoutes.get('/records/:code', async (c) => {
   if (q.q) { where.push('data LIKE ?'); args.push(`%${q.q}%`); }
   const limit = Math.min(Number(q.limit || 20000), 20000);
   const r = await c.env.DB.prepare(`SELECT id, seq, data, updated_at, source FROM records WHERE ${where.join(' AND ')} ORDER BY seq LIMIT ?`).bind(...args, limit).all<any>();
-  return c.json({ register: cfg.code, rows: r.results.map(rowOut) });
+  // Stored data is already JSON: concatenate instead of parse + stringify (keeps CPU low on the free plan).
+  const body = '{"register":' + JSON.stringify(cfg.code) + ',"rows":[' + r.results.map((x) => `{"id":${x.id},"seq":${x.seq},"updated_at":"${x.updated_at}","source":${JSON.stringify(x.source)},"data":${x.data}}`).join(',') + ']}';
+  return new Response(body, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 });
 
 recordRoutes.post('/records/:code', async (c) => {
@@ -125,9 +128,10 @@ recordRoutes.post('/item/:id/attachments', async (c) => {
   const form = await c.req.formData();
   const file = form.get('file') as unknown as File | null;
   if (!file || typeof file === 'string') throw new HttpError(400, 'No file.');
-  if (file.size > 50 * 1024 * 1024) throw new HttpError(413, 'File larger than 50 MB.');
+  const max = hasR2(c.env) ? 50 : 25;
+  if (file.size > max * 1024 * 1024) throw new HttpError(413, `File larger than ${max} MB.`);
   const key = `attachments/${r.register}/${id}/${Date.now()}-${file.name.replace(/[^\w.\- ]+/g, '_')}`;
-  await c.env.FILES.put(key, file.stream(), { httpMetadata: { contentType: file.type || 'application/octet-stream' } });
+  await putFile(c.env, key, await file.arrayBuffer(), file.type || 'application/octet-stream');
   await c.env.DB.prepare('INSERT INTO attachments (record_id, register, r2_key, filename, mime, size, uploaded_by) VALUES (?,?,?,?,?,?,?)')
     .bind(id, r.register, key, file.name, file.type, file.size, c.get('user').id).run();
   await logAudit(c, 'attachment.add', r.register, id, { file: file.name });
@@ -149,9 +153,20 @@ recordRoutes.post('/records/:code/bulk', async (c) => {
 
 export async function bulkUpsert(env: Env, cfg: RegisterConfig, rows: Record<string, unknown>[], mode: string, user: any, uploadId: number | null, seqStart?: number, matchBy: 'key' | 'uid' = 'key') {
   const code = cfg.code;
-  const existing = await env.DB.prepare('SELECT id, row_key, uid, data FROM records WHERE register = ? AND deleted = 0').bind(code).all<any>();
+  const existing = await env.DB.prepare('SELECT id, row_key, uid FROM records WHERE register = ? AND deleted = 0').bind(code).all<any>();
   const byKey = new Map<string, any>();
   for (const e of existing.results) byKey.set(matchBy === 'uid' ? String(e.uid ?? '') : e.row_key, e);
+  // Load stored data only for the rows this chunk will update.
+  if (mode === 'upsert') {
+    const ids: number[] = [];
+    for (const raw of rows) { const p0 = promote(cfg, normaliseRow(cfg, raw)); const k0 = matchBy === 'uid' ? String(p0.uid ?? '') : p0.row_key; const h = byKey.get(k0); if (h) ids.push(h.id); }
+    for (let i = 0; i < ids.length; i += 90) {
+      const part = ids.slice(i, i + 90);
+      const got = await env.DB.prepare(`SELECT id, data FROM records WHERE id IN (${part.map(() => '?').join(',')})`).bind(...part).all<any>();
+      const m = new Map(got.results.map((g) => [g.id, g.data]));
+      for (const e of byKey.values()) if (m.has(e.id)) e.data = m.get(e.id);
+    }
+  }
   const maxSeq = await env.DB.prepare('SELECT COALESCE(MAX(seq),0) AS m FROM records WHERE register = ?').bind(code).first<{ m: number }>();
   let seq = seqStart ?? (maxSeq?.m ?? 0);
   let inserted = 0, updated = 0, unchanged = 0;

@@ -1,15 +1,17 @@
 import { Hono } from 'hono';
 import { type AppEnv, HttpError, requirePerm, logAudit, can } from '../lib';
 import { MODULE_OF_REGISTER } from '../../shared/registers';
+import { putFile as storePut, getFile, hasR2 } from '../storage';
 
 export const docRoutes = new Hono<AppEnv>();
 
 const safe = (n: string) => n.replace(/[^\w.\- ()]+/g, '_');
 
 async function putFile(c: any, prefix: string, file: File): Promise<string> {
-  if (file.size > 100 * 1024 * 1024) throw new HttpError(413, 'File larger than 100 MB.');
+  const max = hasR2(c.env) ? 100 : 25;
+  if (file.size > max * 1024 * 1024) throw new HttpError(413, `File larger than ${max} MB.`);
   const key = `${prefix}/${Date.now()}-${safe(file.name)}`;
-  await c.env.FILES.put(key, file.stream(), { httpMetadata: { contentType: file.type || 'application/octet-stream' } });
+  await storePut(c.env, key, await file.arrayBuffer(), file.type || 'application/octet-stream');
   return key;
 }
 
@@ -23,10 +25,10 @@ docRoutes.get('/files', async (c) => {
   else if (area === 'uploads') ok = can(user, 'ingest', 'view');
   else if (area === 'attachments') ok = can(user, MODULE_OF_REGISTER[key.split('/')[1]] || 'findings', 'view');
   if (!ok) throw new HttpError(403, 'No access to this file.');
-  const obj = await c.env.FILES.get(key);
+  const obj = await getFile(c.env, key);
   if (!obj) throw new HttpError(404, 'File not found');
   const name = key.split('/').pop()!.replace(/^\d+-/, '');
-  return new Response(obj.body, { headers: { 'content-type': obj.httpMetadata?.contentType || 'application/octet-stream', 'content-disposition': `${c.req.query('dl') ? 'attachment' : 'inline'}; filename="${name.replace(/"/g, '')}"`, 'cache-control': 'private, max-age=300' } });
+  return new Response(obj.body, { headers: { 'content-type': obj.contentType, 'content-disposition': `${c.req.query('dl') ? 'attachment' : 'inline'}; filename="${name.replace(/"/g, '')}"`, 'cache-control': 'private, max-age=300' } });
 });
 
 // ---- QMS document library ----

@@ -46,6 +46,8 @@ export async function monthlyReportDocx(d: any, period: { from: string; to: stri
     new Paragraph({ spacing: { after: 60 }, children: [new TextRun({ text: 'QA/QC Monthly Report', bold: true, size: 44, color: NAVY })] }),
     p(docx, `Reporting period: ${period.label}`, { bold: true, size: 24 }),
     p(docx, `Generated from the TRAGS Quality Management Platform on ${fmtDate(new Date().toISOString().slice(0, 10))}. Prepared by: ${prepared}.`, { color: '5D6B7A' }),
+    h(docx, 'Summary'),
+    ...narrative(d).map((t) => p(docx, t)),
     h(docx, '1. Key performance indicators'),
     table(docx, ['Indicator', 'Value', 'Basis'], [
       ['Audits planned / conducted', `${k.audits_planned} / ${k.audits_conducted}`, `Completion ${pctS(k.audit_completion)}; ${k.audits_overdue} overdue`],
@@ -95,6 +97,21 @@ export async function monthlyReportDocx(d: any, period: { from: string; to: stri
     }],
   });
   saveBlob(await Packer.toBlob(doc), `TRAGS QC Monthly Report ${period.label}.docx`);
+}
+
+// Plain-language summary built from the period figures (no AI; every number comes from the registers).
+export function narrative(d: any): string[] {
+  const k = d.kpi, L = d.lists || {};
+  const out: string[] = [];
+  out.push(`${k.audits_conducted} of ${k.audits_planned} planned audits were conducted (${pctS(k.audit_completion)})${k.audits_overdue ? `; ${k.audits_overdue} audit(s) are overdue` : ''}.`);
+  out.push(`${k.findings_total} finding(s) were raised: ${k.ncr} NCR, ${k.obs} observation(s) and ${k.afi} AFI. ${(L.closedFindings || []).length} finding(s) were closed in the period; ${k.aging?.open ?? 0} remain open across all years, ${k.aging?.over90 ?? 0} of them older than 90 days.`);
+  const top = (d.findings?.byProcess || [])[0];
+  if (top && k.findings_total) out.push(`${top.k} accounts for the most findings (${top.n}).`);
+  if (k.films_rt) out.push(`Weld repair rate was ${pctS(k.repair_rate, 2)} (${k.films_rej} rejected of ${k.films_rt} films radiographed).`);
+  if (k.rfi_total) out.push(`${k.rfi_total} RFI(s) were inspected with a rejection rate of ${pctS(k.rfi_rejection)}.`);
+  out.push(`${k.trainings_conducted} training / awareness session(s) were delivered to ${k.participants} participant(s)${k.trainings_planned ? ` against ${k.trainings_planned} planned` : ''}.`);
+  if (k.feedback_total) out.push(`${k.feedback_total} customer feedback item(s) were received${k.complaints_open ? `; ${k.complaints_open} complaint(s) remain open` : ''}.`);
+  return out;
 }
 
 function monthsIn(from: string, to: string) {

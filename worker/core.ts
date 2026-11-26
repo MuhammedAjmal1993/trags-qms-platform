@@ -31,6 +31,23 @@ async function seed(env: Env) {
   }
   const woCount = await env.DB.prepare('SELECT COUNT(*) AS n FROM work_orders').first<{ n: number }>();
   if (!woCount?.n) for (const w of WO_SEED as any[]) stmts.push(env.DB.prepare("INSERT OR IGNORE INTO work_orders (won, client, project_no, contract_no, title, status, notes) VALUES (?,?,?,?,?, 'Active', ?)").bind(w.won, w.client, w.project_no ?? null, w.contract_no ?? null, w.title, `Seeded: ${w.note}`));
+  const itt = await env.DB.prepare("SELECT COUNT(*) AS n FROM records WHERE register='ITT'").first<{ n: number }>();
+  if (!itt?.n) {
+    const src = 'External source (ISO/FDIS 9001:2026 summaries by LRQA, DNV, SGS, ANSI; publication 16-Sep-2026); not a TRAGS requirement until adopted.';
+    const items = [
+      ['ITT-01', 'Cl. 3', 'Core terms and definitions included in the standard (from ISO 9000).', 'QM-01 definitions', 'Review QM-01 and QSP definitions against clause 3.'],
+      ['ITT-02', 'Cl. 5.1 / 7.3', 'Quality culture and ethical behaviour embedded in leadership and awareness requirements.', 'QM-01 §5, Annex 11 Quality Policy; QSP-09', 'Define how leadership promotes quality culture and ethics; update awareness programme.'],
+      ['ITT-03', 'Cl. 6.1', 'Risks and opportunities separated, with distinct requirements for determining and addressing each.', 'QSP-03, Format 188', 'Split risk and opportunity treatment in QSP-03 and the risk register.'],
+      ['ITT-04', 'Cl. 6.3', 'Strengthened planning of changes to the QMS: planning, communication, monitoring and review of changes.', 'QSP-06, QSP-02', 'Add QMS change-management steps and records.'],
+      ['ITT-05', 'Cl. 4.1 / 4.2', 'Climate change consideration in context and interested parties (ISO 9001:2015/Amd 1:2024), carried into the 2026 edition.', 'QSP-03 SWOT/PESTEL (F202, F209)', 'Record climate change relevance in the context review.'],
+      ['ITT-06', 'Annex A', 'Expanded Annex A guidance on applying the requirements.', 'Internal audit programme (QSP-07)', 'Brief internal auditors; update audit checklists.'],
+      ['ITT-07', 'Certification', 'Transition audit with the certification body within the transition period (expected to Sep 2029).', 'Certificates: ISO 9001 (TRAGS, Qatar Factory, TSS)', 'Agree transition audit date with the certification body.'],
+    ];
+    for (const [ref, clause, change, docs, action] of items) {
+      const data = { ref, clause, change, affected_docs: docs, action, status: 'Not started', gap: 'To be assessed', evidence: src };
+      stmts.push(env.DB.prepare("INSERT INTO records (register, row_key, report_no, category, process, status, seq, data, source) VALUES ('ITT',?,?,?,?, 'Not started', ?, ?, 'seed')").bind(ref, ref, clause, docs, Number(ref.slice(4)), JSON.stringify(data)));
+    }
+  }
   stmts.push(env.DB.prepare("INSERT OR IGNORE INTO templates (code, label, kind) VALUES ('F271','F271 R1 Observation Disposition Form','pdf-form'),('NCR','NCR Form (TRAGS format)','pdf-form')"));
   await env.DB.batch(stmts);
   invalidateConfig();
@@ -95,9 +112,22 @@ export async function insertRecord(env: Env, code: string, raw: Record<string, u
       seq = after?.s ? (grp.s + after.s) / 2 : grp.s + 1;
     }
   }
-  if (uidCol && !data[uidCol.key] && cfg.uidSeries && opts.autoUid !== false) {
-    const d = toIsoDate(data[cfg.columns.find((c) => c.role === 'plan_date')?.key || ''] as string);
-    data[uidCol.key] = await nextNumber(env, cfg.uidSeries, d ? Number(d.slice(0, 4)) : undefined);
+  if (data._autonum) {
+    const series = String(data._autonum);
+    delete data._autonum;
+    const s = await env.DB.prepare('SELECT field FROM numbering_series WHERE code = ?').bind(series).first<{ field: string }>();
+    if (s?.field && !data[s.field]) {
+      const d = toIsoDate(data[cfg.columns.find((c) => c.role === 'plan_date')?.key || ''] as string);
+      data[s.field] = await nextNumber(env, series, d ? Number(d.slice(0, 4)) : undefined);
+    }
+  }
+  if (cfg.uidSeries && opts.autoUid !== false) {
+    const series = await env.DB.prepare('SELECT field FROM numbering_series WHERE code = ?').bind(cfg.uidSeries).first<{ field: string }>();
+    const field = series?.field || uidCol?.key;
+    if (field && !data[field]) {
+      const d = toIsoDate(data[cfg.columns.find((c) => c.role === 'plan_date')?.key || ''] as string);
+      data[field] = await nextNumber(env, cfg.uidSeries, d ? Number(d.slice(0, 4)) : undefined);
+    }
   }
   const maxSeq = await env.DB.prepare('SELECT COALESCE(MAX(seq),0) AS m FROM records WHERE register = ?').bind(code).first<{ m: number }>();
   const vals = promotedValues(cfg, data);

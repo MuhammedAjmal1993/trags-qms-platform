@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, fileUrl } from '../api';
 import { useApp } from '../ctx';
 import { Drawer, FileDrop, Spinner, statusChip } from '../components/ui';
@@ -8,12 +9,14 @@ import { exportTable } from '../lib/excel';
 export const LEVELS: Record<number, string> = {
   1: 'Level 1 · Policy, Quality Manual & Certificates', 2: 'Level 2 · Procedures (QSP)', 3: 'Level 3 · Work Instructions & Guidelines', 4: 'Level 4 · Formats & Records',
 };
-const CATEGORIES = ['Quality Manual', 'Policy', 'ISO Certificate', 'Quality Certificate', 'Procedure', 'Work Instruction', 'Guideline', 'Format', 'Plan', 'Manual', 'Other'];
+const CATEGORIES = ['Quality Manual', 'Policy', 'ISO Certificate', 'Quality Certificate', 'ASME Certificate', 'Procedure', 'Work Instruction', 'Guideline', 'Format', 'Plan', 'Manual', 'Quality Memo', 'Client Presentation', 'Capability Statement', 'ASME Structure', 'Other'];
 
 export default function Documents() {
   const { can, toast } = useApp();
   const [docs, setDocs] = useState<any[] | null>(null);
-  const [tab, setTab] = useState<string>('1');
+  const [sp] = useSearchParams();
+  const [tab, setTab] = useState<string>(sp.get('tab') || '1');
+  useEffect(() => { if (sp.get('tab')) setTab(sp.get('tab')!); }, [sp]);
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<any>(null);
   const [newDoc, setNewDoc] = useState(false);

@@ -9,7 +9,7 @@
   "d1_databases": [
     { "binding": "DB", "database_name": "trags-qms-db", "database_id": "60a1a667-aa6f-4a21-bdc7-eeb187c2141a", "migrations_dir": "migrations" }
   ],
-  "r2_buckets": [ { "binding": "FILES", "bucket_name": "trags-qms-files" } ],
+  // R2 (optional, enable later): "r2_buckets": [ { "binding": "FILES", "bucket_name": "trags-qms-files" } ],
   "ai": { "binding": "AI" },
   "vars": { "APP_NAME": "TRAGS Quality Management Platform" }
 }

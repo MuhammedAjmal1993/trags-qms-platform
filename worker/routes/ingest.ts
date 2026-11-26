@@ -3,6 +3,7 @@ import { type AppEnv, type Env, HttpError, requirePerm, logAudit, can, getConfig
 import { insertRecord, updateRecord } from '../core';
 import { MODULE_OF_REGISTER } from '../../shared/registers';
 import { toIsoDate } from '../../shared/logic';
+import { putFile, getFileBytes } from '../storage';
 
 export const ingestRoutes = new Hono<AppEnv>();
 
@@ -54,6 +55,12 @@ export const KINDS: Record<string, { label: string; schema: any; instructions: s
     schema: { type: 'object', properties: { trainings: { type: 'array', items: { type: 'object', properties: { subject: { type: 'string' }, sub_category: { type: 'string', enum: ['Training', 'Awareness'] },
       date: { type: 'string' }, location: { type: 'string' }, conducted_by: { type: 'string' }, participants: { type: 'number' }, duration_hrs: { type: 'number' }, won: { type: 'string' }, process: { type: 'string' } } } } }, required: ['trainings'] },
   },
+  hr_update: {
+    label: 'QA/QC joiner / resignation / transfer notice',
+    instructions: 'The document announces QA/QC personnel joining, resigning, transferring or changing site/role. Extract one entry per person. Use only work information (no personal identifiers beyond employee number and name).',
+    schema: { type: 'object', properties: { people: { type: 'array', items: { type: 'object', properties: { emp_no: { type: 'string' }, name: { type: 'string' }, designation: { type: 'string' }, discipline: { type: 'string' },
+      site: { type: 'string' }, won: { type: 'string' }, change: { type: 'string', enum: ['New joiner', 'Resigned', 'Transferred', 'Terminated', 'Role change', 'Site change'] }, effective_date: { type: 'string' }, reports_to: { type: 'string' } } } } }, required: ['people'] },
+  },
   customer_feedback: {
     label: 'Customer feedback (appreciation, complaint, survey)',
     instructions: 'The document is customer feedback to TRAGS: appreciation email, award, complaint or satisfaction survey. Extract each item. Description = email subject or headline without RE:/FW: prefixes.',
@@ -62,9 +69,29 @@ export const KINDS: Record<string, { label: string; schema: any; instructions: s
   },
 };
 
-async function ai(env: Env): Promise<string> {
+const FALLBACK_MODELS = ['@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/google/gemma-4-26b-a4b-it', '@cf/zai-org/glm-4.7-flash'];
+
+async function models(env: Env): Promise<string[]> {
   const s = await env.DB.prepare("SELECT value FROM settings WHERE key='ai_model'").first<{ value: string }>();
-  return s?.value || DEFAULT_MODEL;
+  return [...new Set([s?.value || DEFAULT_MODEL, ...FALLBACK_MODELS])];
+}
+
+// Runs a free-plan text model; tries JSON mode first, then plain text with JSON parsing, then the next model.
+async function runLLM(env: Env, messages: any[], schema?: any, maxTokens = 4096): Promise<any> {
+  let lastErr: any = null;
+  for (const model of await models(env)) {
+    for (const withSchema of schema ? [true, false] : [false]) {
+      try {
+        const out: any = await env.AI.run(model as any, { messages, max_tokens: maxTokens, ...(withSchema ? { response_format: { type: 'json_schema', json_schema: schema } } : {}) } as any);
+        let r = out?.response ?? out?.choices?.[0]?.message?.content ?? out?.result?.response;
+        if (!schema) return String(r ?? '');
+        if (r && typeof r === 'object') return r;
+        const m = String(r || '').match(/\{[\s\S]*\}/);
+        if (m) return JSON.parse(m[0]);
+      } catch (e) { lastErr = e; }
+    }
+  }
+  throw new HttpError(502, `AI extraction failed: ${lastErr?.message || 'no valid JSON returned'}`);
 }
 
 async function toText(env: Env, name: string, bytes: ArrayBuffer): Promise<string> {
@@ -76,14 +103,11 @@ async function toText(env: Env, name: string, bytes: ArrayBuffer): Promise<strin
 
 async function classify(env: Env, text: string): Promise<string> {
   const kinds = Object.entries(KINDS).map(([k, v]) => `${k}: ${v.label}`).join('\n');
-  const out: any = await env.AI.run((await ai(env)) as any, {
-    messages: [
-      { role: 'system', content: 'Classify the TRAGS quality document. Reply with only the kind key.' },
-      { role: 'user', content: `Kinds:\n${kinds}\n\nDocument (start):\n${text.slice(0, 6000)}` },
-    ],
-    max_tokens: 20,
-  } as any);
-  const k = String(out?.response || '').trim().toLowerCase().replace(/[^a-z_]/g, '');
+  const out = await runLLM(env, [
+    { role: 'system', content: 'Classify the TRAGS quality document. Reply with only the kind key.' },
+    { role: 'user', content: `Kinds:\n${kinds}\n\nDocument (start):\n${text.slice(0, 6000)}` },
+  ], undefined, 20);
+  const k = String(out || '').trim().toLowerCase().replace(/[^a-z_]/g, '');
   return KINDS[k] ? k : 'findings_report';
 }
 
@@ -91,19 +115,10 @@ async function extract(env: Env, kind: string, text: string): Promise<any> {
   const def = KINDS[kind];
   const system = `You extract structured data from TRAGS (Trading and Agency Services, Doha) quality documents for the QA/QC registers.
 Rules: use only facts written in the document. Never invent numbers, dates, names or work order numbers. Leave a field empty when the document does not state it. Copy descriptions verbatim. Dates exactly as written. Return JSON matching the schema.`;
-  const out: any = await env.AI.run((await ai(env)) as any, {
-    messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: `${def.instructions}\n\nDocument:\n"""\n${text.slice(0, 60000)}\n"""` },
-    ],
-    response_format: { type: 'json_schema', json_schema: def.schema },
-    max_tokens: 4096,
-  } as any);
-  let r = out?.response;
-  if (typeof r === 'string') {
-    const m = r.match(/\{[\s\S]*\}/);
-    r = m ? JSON.parse(m[0]) : {};
-  }
+  const r = await runLLM(env, [
+    { role: 'system', content: system + '\nReturn only JSON.' },
+    { role: 'user', content: `${def.instructions}\n\nJSON schema:\n${JSON.stringify(def.schema)}\n\nDocument:\n"""\n${text.slice(0, 40000)}\n"""` },
+  ], def.schema);
   return r || {};
 }
 
@@ -180,6 +195,15 @@ async function propose(env: Env, kind: string, x: any): Promise<{ register: stri
       const w = await flagWon(t);
       out.push({ register: 'TRN', data: { primary: w.won === '1010010' ? 'QMS' : 'PROJECT', sub_category: t.sub_category || 'Training', ext_int: 'INTERNAL', won: w.won, plan_date: toIsoDate(t.date), actual_date: toIsoDate(t.date), subject: t.subject, location: t.location, conducted_by: t.conducted_by, participants: t.participants, duration_hrs: t.duration_hrs, process: t.process, _flags: w.flags } });
     }
+  } else if (kind === 'hr_update') {
+    for (const pp of x.people || []) {
+      const eff = toIsoDate(pp.effective_date);
+      const status = pp.change === 'Resigned' || pp.change === 'Terminated' || pp.change === 'Transferred' ? pp.change : pp.change === 'New joiner' ? 'New joiner' : 'Active';
+      const data: Record<string, unknown> = { emp_no: pp.emp_no, name: pp.name, designation: pp.designation, discipline: pp.discipline, site: pp.site, won: pp.won, reports_to: pp.reports_to, status, remarks: pp.change ? `${pp.change} ${pp.effective_date || ''}`.trim() : null, _flags: pp.emp_no ? {} : { emp_no: 'Employee number not stated; enter it.' } };
+      if (status === 'New joiner') data.join_date = eff; else if (['Resigned', 'Terminated', 'Transferred'].includes(status)) data.exit_date = eff;
+      for (const k of Object.keys(data)) if (data[k] === undefined || data[k] === null || data[k] === '') delete data[k];
+      out.push({ register: 'PPL', data });
+    }
   } else if (kind === 'customer_feedback') {
     for (const f of x.feedback || []) {
       const w = await flagWon(f);
@@ -210,12 +234,12 @@ ingestRoutes.post('/', async (c) => {
   const form = await c.req.formData();
   const file = form.get('file') as unknown as File | null;
   if (!file || typeof file === 'string') throw new HttpError(400, 'No file received.');
-  if (file.size > 50 * 1024 * 1024) throw new HttpError(413, 'File larger than 50 MB.');
+  if (file.size > 25 * 1024 * 1024) throw new HttpError(413, 'File larger than 25 MB.');
   const kind = String(form.get('kind') || 'auto');
   const target = (form.get('target') as string) || null;
   const key = `uploads/${new Date().toISOString().slice(0, 7)}/${Date.now()}-${file.name.replace(/[^\w.\- ]+/g, '_')}`;
   const bytes = await file.arrayBuffer();
-  await c.env.FILES.put(key, bytes, { httpMetadata: { contentType: file.type || 'application/octet-stream' } });
+  await putFile(c.env, key, bytes, file.type || 'application/octet-stream');
   const isExcel = /\.(xlsx|xlsm)$/i.test(file.name) && kind === 'register';
   const row = await c.env.DB.prepare('INSERT INTO uploads (filename, r2_key, mime, size, kind, status, target_register, uploaded_by) VALUES (?,?,?,?,?,?,?,?) RETURNING id')
     .bind(file.name, key, file.type, file.size, isExcel ? 'register' : kind, isExcel ? 'parsing' : 'extracting', target, c.get('user').id).first<{ id: number }>();
@@ -246,9 +270,9 @@ ingestRoutes.post('/:id/reextract', async (c) => {
   if (!u) throw new HttpError(404, 'Upload not found');
   let text = u.text_content;
   if (!text) {
-    const obj = await c.env.FILES.get(u.r2_key);
-    if (!obj) throw new HttpError(404, 'File missing in storage');
-    text = await toText(c.env, u.filename, await obj.arrayBuffer());
+    const bytes = await getFileBytes(c.env, u.r2_key);
+    if (!bytes) throw new HttpError(404, 'File missing in storage');
+    text = await toText(c.env, u.filename, bytes);
   }
   const extracted = await extract(c.env, kind, text);
   const proposals = await propose(c.env, kind, extracted);
@@ -280,6 +304,10 @@ ingestRoutes.post('/:id/apply', async (c) => {
           results.push({ register: 'AUD', id: ex.id, action: 'updated' });
           continue;
         }
+      }
+      if (r.register === 'PPL' && r.data.emp_no) {
+        const ex = await c.env.DB.prepare("SELECT id FROM records WHERE register='PPL' AND deleted=0 AND report_no = ?").bind(String(r.data.emp_no).trim()).first<{ id: number }>();
+        if (ex) { await updateRecord(c.env, ex.id, { ...r.data }, { user, source: `upload:${id}`, uploadId: id }); results.push({ register: 'PPL', id: ex.id, action: 'updated' }); continue; }
       }
       const rid = await insertRecord(c.env, r.register, r.data, { user, source: `upload:${id}`, uploadId: id });
       const rec = await c.env.DB.prepare('SELECT uid FROM records WHERE id = ?').bind(rid).first<any>();

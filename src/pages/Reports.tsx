@@ -4,7 +4,7 @@ import { useApp } from '../ctx';
 import { Spinner, pct } from '../components/ui';
 import { ChartCard, BarChart, LineChart, TYPE_COLORS, exportChartsToPptx } from '../components/Charts';
 import { monthsBetween, mLabel } from './Dashboard';
-import { monthlyReportDocx } from '../lib/report';
+import { monthlyReportDocx, narrative } from '../lib/report';
 import { exportRegister, exportTable, saveBlob } from '../lib/excel';
 import { fmtDate } from '../../shared/logic';
 import type { RegisterConfig } from '../../shared/registers';
@@ -64,6 +64,7 @@ function Monthly() {
           <div className="muted small">TRADING AND AGENCY SERVICES LIMITED COMPANY W.L.L. (TRAGS)</div>
           <h1>QA/QC Monthly Report · {label}</h1>
           <div className="muted small">Generated {fmtDate(new Date().toISOString().slice(0, 10))} from platform data{f.client ? ` · ${f.client}` : ''}{f.won ? ` · WON ${f.won}` : ''}</div>
+          <div className="card" style={{ marginTop: 12 }}><h2>Summary</h2>{narrative(d).map((t, i) => <p key={i} style={{ margin: '4px 0' }}>{t}</p>)}</div>
           <div className="kpis" style={{ marginTop: 14 }}>
             <div className="kpi"><div className="l">Audits conducted</div><div className="v">{k.audits_conducted}/{k.audits_planned}</div><div className="s">{pct(k.audit_completion)} completion</div></div>
             <div className="kpi"><div className="l">Findings raised</div><div className="v">{k.findings_total}</div><div className="s">NCR {k.ncr} · OBS {k.obs} · AFI {k.afi}</div></div>

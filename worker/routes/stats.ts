@@ -207,3 +207,105 @@ statRoutes.get('/monthly', async (c) => {
     FROM records WHERE register='FND' AND deleted=0 AND NOT (${CLOSED}) ${extra(f, [])} ORDER BY plan_date LIMIT 200`, f.won || f.client || f.extint ? (() => { const x: unknown[] = []; extra(f, x); return x; })() : []);
   return c.json({ ...dash, lists: { newFindings, closedFindings, audits, trainings, feedback, openFindings: openList } });
 });
+
+// ---- Home: pending actions, upcoming items, project health ---------------------------
+statRoutes.get('/home', async (c) => {
+  const env = c.env;
+  const today = new Date().toISOString().slice(0, 10);
+  const plus = (d: number) => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
+  const minus = (d: number) => new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
+  const OPEN = "NOT (LOWER(COALESCE(status,'')) IN ('closed','cancelled','completed','done','verified','implemented','conducted','approved','awc','minutes issued','held'))";
+  const S = (sql: string, ...a: unknown[]) => env.DB.prepare(sql).bind(...a);
+  const res = await env.DB.batch([
+    S(`SELECT id, uid, won, client, sub_category, report_no, process, plan_date, status FROM records WHERE register='AUD' AND deleted=0 AND actual_date IS NULL AND plan_date < ? AND LOWER(COALESCE(status,'')) NOT IN ('cancelled','postponed') ORDER BY plan_date LIMIT 15`, today),
+    S(`SELECT COUNT(*) AS n, SUM(CASE WHEN UPPER(finding_type)='NCR' THEN 1 ELSE 0 END) AS ncr, SUM(CASE WHEN julianday(?) - julianday(plan_date) > 90 THEN 1 ELSE 0 END) AS over90 FROM records WHERE register='FND' AND deleted=0 AND NOT (${CLOSED})`, today),
+    S(`SELECT id, uid, report_no, json_extract(data,'$.finding_no') AS finding_no, finding_type, won, client, plan_date, CAST(julianday(?) - julianday(plan_date) AS INTEGER) AS age, json_extract(data,'$.actionee') AS actionee, json_extract(data,'$.ca_target') AS ca_target
+       FROM records WHERE register='FND' AND deleted=0 AND NOT (${CLOSED}) AND (julianday(?) - julianday(plan_date) > 90 OR (json_extract(data,'$.ca_target') IS NOT NULL AND json_extract(data,'$.ca_target') < ?)) ORDER BY plan_date LIMIT 15`, today, today, today),
+    S(`SELECT id, uid, won, plan_date, json_extract(data,'$.subject') AS subject, process FROM records WHERE register='TRN' AND deleted=0 AND actual_date IS NULL AND plan_date <= ? AND LOWER(COALESCE(status,'')) NOT IN ('cancelled') ORDER BY plan_date LIMIT 15`, today),
+    S(`SELECT COUNT(*) AS n FROM records WHERE register='TRN' AND deleted=0 AND actual_date IS NULL AND plan_date <= ? AND LOWER(COALESCE(status,'')) NOT IN ('cancelled')`, today),
+    S(`SELECT id, report_no, json_extract(data,'$.action') AS action, json_extract(data,'$.owner') AS owner, due_date FROM records WHERE register='MRA' AND deleted=0 AND ${OPEN} AND due_date < ? ORDER BY due_date LIMIT 10`, today),
+    S(`SELECT id, uid, won, client, sub_category, ext_int, report_no, process, plan_date, status FROM records WHERE register='AUD' AND deleted=0 AND actual_date IS NULL AND plan_date BETWEEN ? AND ? AND LOWER(COALESCE(status,'')) NOT IN ('cancelled') ORDER BY plan_date LIMIT 12`, today, plus(60)),
+    S(`SELECT id, register, report_no, json_extract(data,'$.title') AS title, json_extract(data,'$.type') AS type, plan_date FROM records WHERE register IN ('EVT','MRM') AND deleted=0 AND plan_date BETWEEN ? AND ? AND ${OPEN} ORDER BY plan_date LIMIT 12`, today, plus(120)),
+    S(`SELECT 'Company certificate' AS kind, d.title AS name, d.doc_no AS ref, d.expiry_date AS expiry FROM documents d WHERE d.expiry_date IS NOT NULL AND d.status <> 'Withdrawn' AND d.expiry_date <= ?
+       UNION ALL SELECT 'Personnel certificate', json_extract(data,'$.name') || ' · ' || category, report_no, due_date FROM records WHERE register='PCR' AND deleted=0 AND due_date <= ?
+       UNION ALL SELECT 'ASME stamp', report_no, json_extract(data,'$.cert_no'), due_date FROM records WHERE register='ASM' AND deleted=0 AND due_date <= ?
+       UNION ALL SELECT 'Welder continuity', json_extract(data,'$.name'), report_no, due_date FROM records WHERE register='WLD' AND deleted=0 AND due_date <= ? AND LOWER(COALESCE(status,'')) NOT IN ('inactive')
+       ORDER BY expiry LIMIT 25`, plus(120), plus(120), plus(120), plus(60)),
+    // project health aggregates
+    S(`SELECT won, COUNT(*) AS open, SUM(CASE WHEN UPPER(finding_type)='NCR' THEN 1 ELSE 0 END) AS ncr, SUM(CASE WHEN julianday(?) - julianday(plan_date) > 90 THEN 1 ELSE 0 END) AS over90
+       FROM records WHERE register='FND' AND deleted=0 AND NOT (${CLOSED}) AND won IS NOT NULL GROUP BY won`, today),
+    S(`SELECT won, SUM(COALESCE(num1,0)) AS films, SUM(COALESCE(num2,0)) AS rej FROM records WHERE register='WRR' AND deleted=0 AND actual_date >= ? AND won IS NOT NULL GROUP BY won`, minus(90)),
+    S(`SELECT won, COUNT(*) AS n, SUM(CASE WHEN UPPER(status) LIKE 'REJECT%' THEN 1 ELSE 0 END) AS rej FROM records WHERE register='RFI' AND deleted=0 AND COALESCE(actual_date, plan_date) >= ? AND won IS NOT NULL GROUP BY won`, minus(90)),
+    S(`SELECT r.won, MAX(COALESCE(r.actual_date, r.plan_date)) AS last, COUNT(*) AS n, w.client, w.title, w.project_no, w.health_override FROM records r LEFT JOIN work_orders w ON w.won = r.won
+       WHERE r.deleted=0 AND r.won IS NOT NULL AND r.won <> '1010010' AND COALESCE(r.actual_date, r.plan_date) >= ? GROUP BY r.won ORDER BY last DESC LIMIT 40`, minus(180)),
+    S(`SELECT value FROM settings WHERE key='wrr_target'`),
+    S(`SELECT register, COUNT(*) AS n FROM records WHERE deleted=0 GROUP BY register`),
+  ]);
+  const R = (i: number) => res[i].results as any[];
+  const target = Number(R(13)[0]?.value || 0.02);
+  const f = new Map(R(9).map((x) => [x.won, x])), w = new Map(R(10).map((x) => [x.won, x])), r = new Map(R(11).map((x) => [x.won, x]));
+  const projects = R(12).map((p) => {
+    const a = f.get(p.won) || { open: 0, ncr: 0, over90: 0 }, b = w.get(p.won), d = r.get(p.won);
+    const reasons: string[] = []; let level = 0;
+    if (a.ncr) { reasons.push(`${a.ncr} open NCR`); level = Math.max(level, a.ncr >= 3 ? 2 : 1); }
+    if (a.over90) { reasons.push(`${a.over90} finding(s) > 90 days`); level = 2; }
+    const rate = b?.films ? b.rej / b.films : null;
+    if (rate !== null && rate > target) { reasons.push(`Repair rate ${(rate * 100).toFixed(2)}%`); level = Math.max(level, rate > 2 * target ? 2 : 1); }
+    const rr = d?.n ? d.rej / d.n : null;
+    if (rr !== null && rr > 0.1) { reasons.push(`RFI rejection ${(rr * 100).toFixed(1)}%`); level = Math.max(level, 1); }
+    if (a.open > 5 && !level) { reasons.push(`${a.open} open findings`); level = 1; }
+    const status = p.health_override || ['Green', 'Amber', 'Red'][level];
+    return { won: p.won, client: p.client, title: p.title, project_no: p.project_no, last: p.last, records: p.n, open: a.open, ncr: a.ncr, repairRate: rate, status, reasons };
+  }).sort((x, y) => ['Red', 'Amber', 'Green'].indexOf(x.status) - ['Red', 'Amber', 'Green'].indexOf(y.status));
+  return c.json({
+    pending: { audits: R(0), findings: R(1)[0], overdueFindings: R(2), trainings: R(3), trainingsCount: R(4)[0]?.n ?? 0, mrmActions: R(5) },
+    upcoming: { audits: R(6), events: R(7), expiries: R(8) },
+    projects, counts: Object.fromEntries(R(14).map((x) => [x.register, x.n])),
+  });
+});
+
+// ---- Insights: compact datasets built as JSON inside D1 (no per-row JS work) ---------
+statRoutes.get('/insights', async (c) => {
+  requirePerm(c, 'insights', 'view');
+  const from = c.req.query('from') || `${new Date().getUTCFullYear() - 2}-01-01`;
+  const to = c.req.query('to') || `${new Date().getUTCFullYear()}-12-31`;
+  const S = (sql: string, ...a: unknown[]) => c.env.DB.prepare(sql).bind(...a);
+  const res = await c.env.DB.batch([
+    S(`SELECT json_group_array(json_object('id',id,'uid',uid,'r',report_no,'n',json_extract(data,'$.finding_no'),'won',won,'cl',client,'p',process,'s',sub_category,'t',UPPER(COALESCE(finding_type,'')),'e',ext_int,'st',status,'d',plan_date,'cd',close_date,'ca',due_date,'cr',criticality,'rc',json_extract(data,'$.rca_category'),'root',substr(COALESCE(json_extract(data,'$.root_cause'),''),1,300),'x',substr(COALESCE(json_extract(data,'$.description'),''),1,500),'a',json_extract(data,'$.actionee'),'loc',json_extract(data,'$.location'),'eff',json_extract(data,'$.effectiveness_result'),'cat',json_extract(data,'$.ca_target'))) AS j FROM records WHERE register='FND' AND deleted=0 AND plan_date BETWEEN ? AND ?`, from, to),
+    S(`SELECT json_group_array(json_object('r',report_no,'s',sub_category,'e',ext_int,'p',process,'won',won,'pd',plan_date,'ad',actual_date,'st',status)) AS j FROM records WHERE register='AUD' AND deleted=0 AND COALESCE(actual_date, plan_date) BETWEEN ? AND ?`, from, to),
+    S(`SELECT json_group_array(json_object('p',process,'pd',plan_date,'ad',actual_date,'ref',json_extract(data,'$.finding_ref'),'x',json_extract(data,'$.subject'),'n',num1)) AS j FROM records WHERE register='TRN' AND deleted=0 AND plan_date BETWEEN ? AND ?`, from, to),
+    S(`SELECT json_group_array(json_object('s',sub_category,'p',process,'cl',client,'d',plan_date,'cd',close_date,'st',status,'ref',json_extract(data,'$.ref'))) AS j FROM records WHERE register='CFB' AND deleted=0 AND plan_date BETWEEN ? AND ?`, from, to),
+    S(`SELECT json_group_array(json_object('d',plan_date,'ad',actual_date,'st',status)) AS j FROM records WHERE register='MRM' AND deleted=0`),
+    S(`SELECT json_group_array(json_object('p',process,'d',plan_date,'due',due_date,'cd',close_date,'st',status)) AS j FROM records WHERE register='MRA' AND deleted=0`),
+    S(`SELECT value FROM settings WHERE key='qms_map'`),
+  ]);
+  const j = (i: number) => (res[i].results[0] as any)?.j || '[]';
+  const map = (res[6].results[0] as any)?.value || 'null';
+  const body = `{"from":"${from}","to":"${to}","findings":${j(0)},"audits":${j(1)},"trainings":${j(2)},"feedback":${j(3)},"mrm":${j(4)},"mrmActions":${j(5)},"qmsMap":${map}}`;
+  return new Response(body, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
+});
+
+// Photo library: image attachments across all registers, newest first.
+statRoutes.get('/photos', async (c) => {
+  const q = c.req.query();
+  const where = ["a.mime LIKE 'image/%'", 'r.deleted = 0'];
+  const args: unknown[] = [];
+  if (q.won) { where.push('r.won = ?'); args.push(q.won); }
+  if (q.type) { where.push("(json_extract(r.data,'$.type') = ? OR r.register = ?)"); args.push(q.type, q.type); }
+  if (q.year) { where.push("substr(COALESCE(r.plan_date, r.actual_date, a.uploaded_at),1,4) = ?"); args.push(q.year); }
+  const rows = await c.env.DB.prepare(`SELECT a.id, a.r2_key, a.filename, a.uploaded_at, r.id AS record_id, r.register, r.won, r.uid, r.report_no, COALESCE(r.plan_date, r.actual_date) AS date,
+      COALESCE(json_extract(r.data,'$.title'), json_extract(r.data,'$.subject'), json_extract(r.data,'$.winner'), json_extract(r.data,'$.description')) AS caption, json_extract(r.data,'$.type') AS type
+    FROM attachments a JOIN records r ON r.id = a.record_id WHERE ${where.join(' AND ')} ORDER BY COALESCE(r.plan_date, a.uploaded_at) DESC LIMIT 600`).bind(...args).all();
+  return c.json(rows.results);
+});
+
+// Per-register totals for hub overview tiles.
+statRoutes.get('/hubcounts', async (c) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const r = await c.env.DB.prepare(`SELECT register, COUNT(*) AS total,
+      SUM(CASE WHEN LOWER(COALESCE(status,'')) IN ('closed','cancelled','completed','done','verified','implemented','conducted','approved','awc','minutes issued','resigned','terminated','transferred','archived','inactive') THEN 0 ELSE 1 END) AS open,
+      SUM(CASE WHEN due_date IS NOT NULL AND due_date < ? AND LOWER(COALESCE(status,'')) NOT IN ('closed','cancelled','completed','done','verified','implemented','inactive') THEN 1 ELSE 0 END) AS overdue,
+      MAX(updated_at) AS last
+    FROM records WHERE deleted = 0 GROUP BY register`).bind(today).all();
+  return c.json(r.results);
+});

@@ -154,4 +154,12 @@ export const MIGRATIONS: { id: number; sql: string[] }[] = [
       )`,
     ],
   },
+  {
+    id: 2,
+    sql: [
+      `CREATE TABLE IF NOT EXISTS file_meta (key TEXT PRIMARY KEY, mime TEXT, size INTEGER, chunks INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+      `CREATE TABLE IF NOT EXISTS file_chunks (key TEXT NOT NULL, idx INTEGER NOT NULL, data BLOB, PRIMARY KEY (key, idx))`,
+      `CREATE INDEX IF NOT EXISTS ix_att_reg ON attachments(register, mime)`,
+    ],
+  },
 ];

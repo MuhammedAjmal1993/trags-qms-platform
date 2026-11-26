@@ -1,9 +1,11 @@
-import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useApp } from './ctx';
 import { api } from './api';
 import { Login, Setup, ChangePassword } from './pages/Auth';
+import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
+import Insights from './pages/Insights';
 import RegisterPage from './pages/RegisterPage';
 import { WorkOrders, WorkOrderDetail } from './pages/WorkOrders';
 import Ingest from './pages/Ingest';
@@ -11,65 +13,76 @@ import Documents from './pages/Documents';
 import Plans from './pages/Plans';
 import Reports from './pages/Reports';
 import Admin from './pages/Admin';
-import { MODULE_OF_REGISTER } from '../shared/registers';
+import { Hub, Disposition, OrgChart, Library, Photos, Showcase } from './pages/Hubs';
+import { NAV } from './nav';
 
-const GROUPS: { label: string; modules: string[] }[] = [
-  { label: 'Audits', modules: ['audits'] },
-  { label: 'Findings', modules: ['findings'] },
-  { label: 'Inspections', modules: ['inspections'] },
-  { label: 'Welding', modules: ['welding'] },
-  { label: 'Training', modules: ['training'] },
-  { label: 'Customer Feedback', modules: ['feedback'] },
-];
+function Side() {
+  const { can, registers } = useApp();
+  const loc = useLocation();
+  const counts = Object.fromEntries(registers.map((r) => [r.code, r.count]));
+  const [open, setOpen] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem('nav') || '{}'); } catch { return {}; } });
+  const toggle = (id: string) => { const n = { ...open, [id]: !isOpen(id) }; setOpen(n); try { localStorage.setItem('nav', JSON.stringify(n)); } catch { /* ignore */ } };
+  const active = (g: typeof NAV[number]) => g.items.some((i) => loc.pathname + loc.search === i.to || loc.pathname === i.to.split('?')[0]);
+  const isOpen = (id: string) => (open[id] === undefined ? id === 'insight' : open[id]);
+  return (
+    <aside className="side">
+      <div className="brand"><div className="logo">Q</div><div><b>TRAGS QA/QC</b><span>Quality Management Platform</span></div></div>
+      <NavLink className="nav home" to="/" end>⌂ Home</NavLink>
+      {NAV.map((g) => {
+        const items = g.items.filter((i) => can(i.module));
+        if (!items.length) return null;
+        const o = isOpen(g.id) || active(g);
+        return (
+          <div key={g.id} className="nav-sec">
+            <button className={`nav-head ${active(g) ? 'on' : ''}`} onClick={() => toggle(g.id)}><span>{g.icon} {g.label}</span><span className="caret">{o ? '▾' : '▸'}</span></button>
+            {o && items.map((i) => (
+              <NavLink key={i.to} className="nav" to={i.to} end={!i.to.includes('?')}>
+                <span>{i.label}</span>{i.register && counts[i.register] !== undefined && <span className="count">{counts[i.register]}</span>}
+              </NavLink>
+            ))}
+          </div>
+        );
+      })}
+      {can('admin') && <NavLink className="nav admin" to="/admin">⚙ Admin Panel</NavLink>}
+    </aside>
+  );
+}
 
 function Shell() {
-  const { user, registers, can, refresh } = useApp();
+  const { user, refresh } = useApp();
   const nav = useNavigate();
   const [q, setQ] = useState('');
-  const logout = async () => { await api.post('/api/auth/logout'); await refresh(); nav('/login'); };
+  const logout = async () => { await api.post('/api/auth/logout'); await refresh(); nav('/'); };
   const search = (e: React.FormEvent) => {
     e.preventDefault();
     const v = q.trim();
     if (/^\d{7}$/.test(v)) nav(`/wo/${v}`);
-    else if (v) nav(`/r/FND?q=${encodeURIComponent(v)}`);
+    else if (v) nav(`/r/FND?q=${encodeURIComponent(v)}&year=`);
   };
   return (
     <div className="shell">
-      <aside className="side">
-        <div className="brand"><div className="logo">Q</div><div><b>TRAGS QMS</b><span>Quality Management Platform</span></div></div>
-        {can('dashboard') && <NavLink className="nav" to="/" end>Dashboard</NavLink>}
-        {can('workorders') && <NavLink className="nav" to="/wo">Projects &amp; Work Orders</NavLink>}
-        {GROUPS.map((g) => {
-          const regs = registers.filter((r) => g.modules.includes(MODULE_OF_REGISTER[r.code]));
-          if (!regs.length) return null;
-          return (
-            <div key={g.label}>
-              <div className="nav-group">{g.label}</div>
-              {regs.map((r) => <NavLink key={r.code} className="nav" to={`/r/${r.code}`}><span>{r.name.replace(/^\d+\s/, '')}</span><span className="count">{r.count}</span></NavLink>)}
-            </div>
-          );
-        })}
-        <div className="nav-group">Data &amp; outputs</div>
-        {can('ingest') && <NavLink className="nav" to="/ingest">Upload Center</NavLink>}
-        {can('reports') && <NavLink className="nav" to="/reports">Reports &amp; Exports</NavLink>}
-        <div className="nav-group">QMS</div>
-        {can('documents') && <NavLink className="nav" to="/documents">Document Library</NavLink>}
-        {can('plans') && <NavLink className="nav" to="/plans">Plans &amp; Objectives</NavLink>}
-        {can('admin') && <><div className="nav-group">Administration</div><NavLink className="nav" to="/admin">Admin Panel</NavLink></>}
-      </aside>
+      <Side />
       <div className="main">
         <div className="topbar">
-          <form onSubmit={search} className="row grow"><input style={{ width: 340 }} placeholder="Search WON (7 digits) or finding text / report no." value={q} onChange={(e) => setQ(e.target.value)} /></form>
-          <span className="muted small">{user?.name} · {user?.role}</span>
+          <form onSubmit={search} className="row grow"><input style={{ width: 'min(360px, 60vw)' }} placeholder="Search WON (7 digits), report no. or finding text" value={q} onChange={(e) => setQ(e.target.value)} /></form>
+          <span className="muted small hide-sm">{user?.name} · {user?.role}</span>
           <button className="sm" onClick={() => nav('/password')}>Password</button>
           <button className="sm" onClick={logout}>Sign out</button>
         </div>
         <div className="content">
           <Routes>
-            <Route path="/" element={can('dashboard') ? <Dashboard /> : <Navigate to="/wo" />} />
+            <Route path="/" element={<Home />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/insights" element={<Insights />} />
             <Route path="/wo" element={<WorkOrders />} />
             <Route path="/wo/:won" element={<WorkOrderDetail />} />
             <Route path="/r/:code" element={<RegisterPage />} />
+            <Route path="/hub/:hub" element={<Hub />} />
+            <Route path="/disposition" element={<Disposition />} />
+            <Route path="/orgchart" element={<OrgChart />} />
+            <Route path="/library" element={<Library />} />
+            <Route path="/photos" element={<Photos />} />
+            <Route path="/showcase" element={<Showcase />} />
             <Route path="/ingest" element={<Ingest />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/documents" element={<Documents />} />

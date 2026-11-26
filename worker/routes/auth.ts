@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import { type AppEnv, type Env, type SessionUser, HttpError, hashPassword, passwordProblems, randomToken, sha256, timingSafeEqual } from '../lib';
+import { type AppEnv, type Env, type SessionUser, HttpError, hashPassword, verifyPassword, passwordProblems, randomToken, sha256, timingSafeEqual } from '../lib';
 
 export const SESSION_COOKIE = 'tqms_session';
 const SESSION_HOURS = 12;
@@ -61,8 +61,7 @@ authRoutes.post('/login', async (c) => {
     fail();
   }
   if (u.locked_until && u.locked_until > new Date().toISOString()) throw new HttpError(429, 'Account locked after repeated failed logins. Try again in 15 minutes or ask the administrator.');
-  const { hash } = await hashPassword(String(password || ''), u.password_salt);
-  if (!timingSafeEqual(hash, u.password_hash)) {
+  if (!(await verifyPassword(String(password || ''), u.password_hash, u.password_salt))) {
     const fails = u.failed_logins + 1;
     const lock = fails >= 5 ? new Date(Date.now() + 15 * 60000).toISOString() : null;
     await c.env.DB.prepare('UPDATE users SET failed_logins = ?, locked_until = ? WHERE id = ?').bind(lock ? 0 : fails, lock, u.id).run();
@@ -86,8 +85,7 @@ authRoutes.post('/password', async (c) => {
   if (!user) throw new HttpError(401, 'Not signed in.');
   const { current, password } = await c.req.json<any>();
   const u = await c.env.DB.prepare('SELECT password_hash, password_salt FROM users WHERE id = ?').bind(user.id).first<any>();
-  const { hash } = await hashPassword(String(current || ''), u.password_salt);
-  if (!timingSafeEqual(hash, u.password_hash)) throw new HttpError(400, 'Current password is incorrect.');
+  if (!(await verifyPassword(String(current || ''), u.password_hash, u.password_salt))) throw new HttpError(400, 'Current password is incorrect.');
   const problem = passwordProblems(password);
   if (problem) throw new HttpError(400, problem);
   const np = await hashPassword(password);
