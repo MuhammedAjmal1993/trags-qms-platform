@@ -72,7 +72,18 @@ export async function importStatus(env: Env) {
   };
 }
 
+// Single runner at a time: the cron and the admin button can overlap, and a chunk applied twice
+// would insert its rows twice. A 2-minute lease in settings serialises the runners.
 export async function importStep(env: Env, maxChunks = 1): Promise<{ processed: number; stopped?: string }> {
+  const lease = String(Date.now());
+  const got = await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('import_lock', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value WHERE CAST(settings.value AS INTEGER) < ?")
+    .bind(lease, Date.now() - 120000).run();
+  if (!got.meta.changes) return { processed: 0, stopped: 'busy' };
+  try { return await runStep(env, maxChunks); }
+  finally { await env.DB.prepare("DELETE FROM settings WHERE key = 'import_lock' AND value = ?").bind(lease).run().catch(() => {}); }
+}
+
+async function runStep(env: Env, maxChunks: number): Promise<{ processed: number; stopped?: string }> {
   const m = await manifest(env);
   if (!m) return { processed: 0, stopped: 'no manifest' };
   const key = await getSetting(env, 'import_key');
