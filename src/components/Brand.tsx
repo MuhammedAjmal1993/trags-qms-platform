@@ -1,6 +1,6 @@
 // TRAGS brand marks. The logo files are static assets in /brand so they load instantly from the CDN.
 export function Logo({ size = 40, white = false, className }: { size?: number; white?: boolean; className?: string }) {
-  return <img className={className} src={white ? '/brand/trags-logo-white.png' : '/brand/trags-logo.png'} alt="TRAGS" style={{ height: size * 0.62, width: 'auto', display: 'block' }} />;
+  return <img className={className} src={white ? '/brand/trags-logo-white.png' : '/brand/trags-logo.png'} alt="TRAGS" style={{ height: size * 0.62, width: 'auto', display: 'block', alignSelf: 'flex-start', objectFit: 'contain' }} />;
 }
 
 // Square mark for tight spots (sidebar, favicon-like badges).

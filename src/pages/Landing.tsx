@@ -126,8 +126,9 @@ export function Landing({ signedIn }: { signedIn?: boolean }) {
         </div>
         {st && (
           <div className="glass-stack">
-            <div className="glass"><div className="gi" style={{ background: '#327cff' }}><Search size={18} /></div><div><b><CountUp value={st.rfis} ms={1600} /></b><span>RFIs inspected in {y}</span></div></div>
-            <div className="glass"><div className="gi" style={{ background: '#8b5cf6' }}><Radiation size={18} /></div><div><b>{pct(st.repairRate, 2)}</b><span>Weld repair rate {y} · target ≤ 1.5%</span></div></div>
+            {st.rfis > 0 && <div className="glass"><div className="gi" style={{ background: '#327cff' }}><Search size={18} /></div><div><b><CountUp value={st.rfis} ms={1600} /></b><span>RFIs inspected in {y}</span></div></div>}
+            {st.repairRate != null && <div className="glass"><div className="gi" style={{ background: '#8b5cf6' }}><Radiation size={18} /></div><div><b>{pct(st.repairRate, 2)}</b><span>Weld repair rate {y} · target ≤ 1.5%</span></div></div>}
+            {st.trainings > 0 && st.rfis === 0 && <div className="glass"><div className="gi" style={{ background: '#f59e0b' }}><GraduationCap size={18} /></div><div><b><CountUp value={st.participants} ms={1600} /></b><span>Participants trained in {y}</span></div></div>}
             <div className="glass"><div className="gi" style={{ background: '#14b8a6' }}><ClipboardCheck size={18} /></div><div><b><CountUp value={st.findingsTracked} ms={1600} /></b><span>Findings tracked{st.since ? ` since ${st.since}` : ''}</span></div></div>
           </div>
         )}
@@ -154,7 +155,7 @@ export function Landing({ signedIn }: { signedIn?: boolean }) {
               { icon: Trophy, c: '#ec4899', n: st.welderAwards, l: 'Welders recognised', s: 'Welder of the Month programme' },
               { icon: Users, c: '#14b8a6', n: st.team, l: 'QA/QC professionals', s: 'Engineers, inspectors and coordinators' },
               { icon: Briefcase, c: '#64748b', n: st.projects, l: 'Work orders covered', s: 'Active in the last 12 months' },
-            ].map((k, i) => (
+            ].filter((k) => k.n > 0).map((k, i) => (
               <div key={k.l} className="lp-kpi reveal" style={{ transitionDelay: `${i * 50}ms` }}>
                 <div className="ki" style={{ background: `${k.c}1a`, color: k.c }}><k.icon size={20} /></div>
                 <div className="n"><CountUp value={k.n} ms={1500} /></div><div className="l">{k.l}</div><div className="s">{k.s}</div>
@@ -162,8 +163,8 @@ export function Landing({ signedIn }: { signedIn?: boolean }) {
             ))}
           </div>
           <div className="lp-targets">
-            <div className="lp-target reveal"><Gauge size={20} color="#327cff" /><div className="grow"><div className="row" style={{ justifyContent: 'space-between' }}><b>RFI rejection rate</b><span className="big2">{pct(st.rfiRejection, 2)}</span></div><Meter value={st.rfiRejection} target={0.02} lowerIsBetter /></div></div>
-            <div className="lp-target reveal"><Target size={20} color="#8b5cf6" /><div className="grow"><div className="row" style={{ justifyContent: 'space-between' }}><b>Weld repair rate (film)</b><span className="big2">{pct(st.repairRate, 2)}</span></div><Meter value={st.repairRate} target={0.015} lowerIsBetter /></div></div>
+            {st.rfiRejection != null && <div className="lp-target reveal"><Gauge size={20} color="#327cff" /><div className="grow"><div className="row" style={{ justifyContent: 'space-between' }}><b>RFI rejection rate</b><span className="big2">{pct(st.rfiRejection, 2)}</span></div><Meter value={st.rfiRejection} target={0.02} lowerIsBetter /></div></div>}
+            {st.repairRate != null && <div className="lp-target reveal"><Target size={20} color="#8b5cf6" /><div className="grow"><div className="row" style={{ justifyContent: 'space-between' }}><b>Weld repair rate (film)</b><span className="big2">{pct(st.repairRate, 2)}</span></div><Meter value={st.repairRate} target={0.015} lowerIsBetter /></div></div>}
           </div>
         </section>
       )}
