@@ -66,7 +66,12 @@ function Meter({ value, target, lowerIsBetter }: { value: number | null; target:
 export function Landing({ signedIn }: { signedIn?: boolean }) {
   const [s, setS] = useState<Summary | null>(null);
   const [solid, setSolid] = useState(false);
-  const [intro] = useState(() => { try { if (sessionStorage.getItem('intro')) return false; sessionStorage.setItem('intro', '1'); } catch { /* ignore */ } return true; });
+  const [intro, setIntro] = useState(() => {
+    try { if (matchMedia('(prefers-reduced-motion: reduce)').matches || sessionStorage.getItem('intro')) return false; sessionStorage.setItem('intro', '1'); } catch { /* ignore */ }
+    return true;
+  });
+  // The intro fades out by CSS; remove it from the page afterwards so it can never block the view.
+  useEffect(() => { if (!intro) return; const t = setTimeout(() => setIntro(false), 2800); return () => clearTimeout(t); }, [intro]);
   const [qr, setQr] = useState('');
   const [img, setImg] = useState<{ id: number; caption: string | null } | null>(null);
   const [gf, setGf] = useState('All');

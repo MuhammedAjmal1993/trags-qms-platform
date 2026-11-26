@@ -35,7 +35,7 @@ export default function Home() {
         <div className="hero-k">{today.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
         <h1>{hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'}, {user?.name?.split(' ')[0]}</h1>
         <p>Here is what needs attention across TRAGS QA/QC today.</p>
-        <div className="row" style={{ marginTop: 14 }}>
+        <div className="row" style={{ marginTop: 14, gap: 10, flexWrap: 'wrap', position: 'relative', zIndex: 1 }}>
           {can('dashboard') && <button className="primary" onClick={go('/dashboard')}><LayoutDashboard size={15} /> Master dashboard</button>}
           {can('insights') && <button className="btn glass" onClick={go('/insights')}>Insights & patterns <ArrowRight size={15} /></button>}
         </div>
