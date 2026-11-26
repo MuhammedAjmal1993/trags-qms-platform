@@ -379,3 +379,4 @@ table.grid.heat td:first-child { text-align: left; }
   .lhero { padding-top: 100px; min-height: 86vh; }
   .lstats { grid-template-columns: 1fr 1fr; }
 }
+@media (max-width: 1250px) { .lhero .mock { display: none; } }
