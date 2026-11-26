@@ -129,15 +129,21 @@ export function OrgChart() {
   const [site, setSite] = useState('');
   useEffect(() => { api.get('/api/records/PPL').then((d) => setRows(d.rows)); }, []);
   if (!rows) return <Spinner />;
-  const active = rows.filter((r) => !/resigned|terminated|transferred/i.test(r.data.status || '') && (!site || r.data.site === site));
-  const byEmp = new Map(active.map((r) => [String(r.data.emp_no), r]));
+  const active = rows.filter((r) => !/resigned|terminated|transferred|^left|not on current/i.test(r.data.status || '') && (!site || r.data.site === site));
+  // "Reports to" may hold the manager's employee number or name; both resolve to the manager's record.
+  const key = (r: any) => String(r.id);
+  const norm = (v: unknown) => String(v || '').toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  const byRef = new Map<string, any>();
+  for (const r of active) { if (r.data.emp_no) byRef.set(norm(r.data.emp_no), r); if (r.data.name) byRef.set(norm(r.data.name), r); }
   const kids = new Map<string, any[]>();
   const roots: any[] = [];
   for (const r of active) {
-    const p = String(r.data.reports_to || '');
-    if (p && byEmp.has(p) && p !== String(r.data.emp_no)) (kids.get(p) || kids.set(p, []).get(p)!).push(r);
+    const m = byRef.get(norm(r.data.reports_to));
+    if (m && m.id !== r.id) (kids.get(key(m)) || kids.set(key(m), []).get(key(m))!).push(r);
     else roots.push(r);
   }
+  // Managers first, then people without a recorded line manager.
+  roots.sort((a, b) => (kids.get(key(b))?.length || 0) - (kids.get(key(a))?.length || 0));
   const since = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
   const joiners = rows.filter((r) => (r.data.join_date || '') >= since);
   const leavers = rows.filter((r) => (r.data.exit_date || '') >= since);
@@ -148,7 +154,7 @@ export function OrgChart() {
       <div className="onode" onClick={() => nav(`/r/PPL?id=${r.id}`)}>
         <b>{r.data.name}</b><div className="small">{r.data.designation}</div><div className="muted small">{[r.data.discipline, r.data.site].filter(Boolean).join(' · ')}</div>
       </div>
-      {(kids.get(String(r.data.emp_no)) || []).length > 0 && depth < 6 && <ul>{kids.get(String(r.data.emp_no))!.map((k) => <Node key={k.id} r={k} depth={depth + 1} />)}</ul>}
+      {(kids.get(key(r)) || []).length > 0 && depth < 6 && <ul>{kids.get(key(r))!.map((k) => <Node key={k.id} r={k} depth={depth + 1} />)}</ul>}
     </li>
   );
   return (
@@ -164,7 +170,16 @@ export function OrgChart() {
         {count('site').slice(0, 4).map(([k, v]: any) => <div key={k} className="kpi"><div className="l">{k}</div><div className="v">{v}</div></div>)}
       </div>
       {!active.length ? <div className="empty">Add people to the QA/QC Resource List (import the inspector master list in the Upload Center) to build the chart.</div> : (
-        <div className="card org"><ul className="otree">{roots.map((r) => <Node key={r.id} r={r} depth={0} />)}</ul></div>
+        <>
+          <div className="card org"><ul className="otree">{roots.filter((r) => kids.has(key(r))).map((r) => <Node key={r.id} r={r} depth={0} />)}</ul></div>
+          {roots.some((r) => !kids.has(key(r))) && (
+            <div className="card" style={{ marginTop: 12 }}>
+              <h3>Site inspectors and staff without a recorded line manager ({roots.filter((r) => !kids.has(key(r))).length})</h3>
+              <div className="muted small" style={{ marginBottom: 8 }}>Fill "Reports to" in the Resource List to place them in the chart.</div>
+              <div className="chips-wrap">{roots.filter((r) => !kids.has(key(r))).map((r) => <span key={r.id} className="chip" style={{ cursor: 'pointer' }} onClick={() => nav(`/r/PPL?id=${r.id}`)}>{r.data.name} · {r.data.designation || '–'}</span>)}</div>
+            </div>
+          )}
+        </>
       )}
       <div className="cards" style={{ marginTop: 12 }}>
         <ChartCard title="Headcount by designation"><BarChart horizontal labels={count('designation').map((x: any) => x[0])} series={[{ label: 'People', data: count('designation').map((x: any) => x[1]) }]} /></ChartCard>
@@ -316,7 +331,7 @@ export function Showcase() {
             <div>Trading and Agency Services Limited Company W.L.L. · Doha, Mesaieed, Ras Laffan</div></div>
         </div>
         <div className="kpis chart-card" data-title={`QA/QC at a glance ${y}`}>
-          <div className="kpi"><div className="l">QA/QC team</div><div className="v">{d.ppl.filter((r: any) => !/resigned|terminated|transferred/i.test(r.data.status || '')).length}</div><div className="s">active personnel</div></div>
+          <div className="kpi"><div className="l">QA/QC team</div><div className="v">{d.ppl.filter((r: any) => !/resigned|terminated|transferred|^left|not on current/i.test(r.data.status || '')).length}</div><div className="s">active personnel</div></div>
           <div className="kpi"><div className="l">Personnel certifications</div><div className="v">{d.pcr.filter((r: any) => !r.data.expiry_date || r.data.expiry_date >= today).length}</div><div className="s">valid</div></div>
           <div className="kpi"><div className="l">Audits {y}</div><div className="v">{k.audits_conducted}</div><div className="s">conducted</div></div>
           <div className="kpi"><div className="l">Findings closed</div><div className="v">{k.findings_total - k.findings_open}</div><div className="s">of {k.findings_total} raised in {y}</div></div>
