@@ -5,13 +5,13 @@ Web platform that runs the TRAGS QMS registers end to end: Audit Plan, Finding R
 ## Stack
 - Cloudflare Worker (API, `worker/`) with static assets (React SPA, `src/`)
 - D1 database `trags-qms-db` (schema migrates itself on first request after each deploy, `worker/schema.ts`)
-- R2 bucket `trags-qms-files` (uploads, attachments, controlled documents, form templates)
+- Files (uploads, attachments, controlled documents, form templates, photos) stored as chunks in D1 (`worker/storage.ts`); R2 optional later
 - Workers AI (`toMarkdown` text extraction + Llama 3.3 70B structured extraction) for scans, PDFs and Word reports
 - Shared register definitions and rules: `shared/registers.ts`, `shared/logic.ts`
 
 ## Deploy
 Cloudflare Workers Builds is connected to this repository: every push to `main` builds (`npm run build`) and deploys (`npx wrangler deploy`).
-Requirements on the Cloudflare account: Workers Paid plan, R2 enabled.
+Runs on the Workers Free plan (10 ms CPU per request, D1 100,000 rows written per day). A cron trigger (every minute) runs the register importer.
 
 Manual deploy: `npm ci && npm run build && npx wrangler deploy`.
 
