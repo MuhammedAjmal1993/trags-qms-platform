@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api, fileUrl } from '../api';
+import { api, fileUrl, useSWR } from '../api';
 import { useApp } from '../ctx';
-import { Spinner, Drawer, statusChip, FileDrop } from '../components/ui';
+import { Spinner, Drawer, Modal, statusChip, FileDrop, ErrorState, pressable } from '../components/ui';
 import { snapshot, exportChartsToPptx, ChartCard, BarChart, DonutChart } from '../components/Charts';
 import { HUBS } from '../nav';
 import { fmtDate } from '../../shared/logic';
 import { compressImage } from '../lib/images';
+import { Search } from 'lucide-react';
+
+// Loads one register's rows with error and retry state (read-only views).
+function useRows(code: string) {
+  const { data, error, reload } = useSWR<{ rows: any[] }>(`/api/records/${code}`);
+  return { rows: data ? data.rows : null, error, reload };
+}
 
 // ---------- Hub overview ----------
 export function Hub() {
@@ -62,9 +69,8 @@ const age = (iso?: string) => (iso ? Math.floor((Date.now() - new Date(iso + 'T0
 
 export function Disposition() {
   const nav = useNavigate();
-  const [rows, setRows] = useState<any[] | null>(null);
+  const { rows, error, reload } = useRows('FND');
   const [f, setF] = useState({ type: '', client: '', q: '', year: String(new Date().getFullYear()) });
-  useEffect(() => { api.get('/api/records/FND').then((d) => setRows(d.rows)); }, []);
   const view = useMemo(() => (rows || []).filter((r) => {
     const d = r.data;
     if (f.type && String(d.finding_type).toUpperCase() !== f.type) return false;
@@ -73,7 +79,7 @@ export function Disposition() {
     if (f.q && !JSON.stringify(d).toLowerCase().includes(f.q.toLowerCase())) return false;
     return true;
   }), [rows, f]);
-  if (!rows) return <Spinner />;
+  if (!rows) return error ? <ErrorState message={error} onRetry={reload} /> : <Spinner />;
   const clients = [...new Set(rows.map((r) => r.data.client).filter(Boolean))].sort();
   const by = (k: string) => view.filter((r) => stageOf(r.data) === k);
   const closedRows = view.filter((r) => /closed/i.test(r.data.status) && r.data.issue_date && r.data.closeout_date);
@@ -125,10 +131,9 @@ export function Disposition() {
 export function OrgChart() {
   const nav = useNavigate();
   const ref = useRef<HTMLDivElement>(null);
-  const [rows, setRows] = useState<any[] | null>(null);
+  const { rows, error, reload } = useRows('PPL');
   const [site, setSite] = useState('');
-  useEffect(() => { api.get('/api/records/PPL').then((d) => setRows(d.rows)); }, []);
-  if (!rows) return <Spinner />;
+  if (!rows) return error ? <ErrorState message={error} onRetry={reload} /> : <Spinner />;
   const active = rows.filter((r) => !/resigned|terminated|transferred|^left|not on current/i.test(r.data.status || '') && (!site || r.data.site === site));
   // "Reports to" may hold the manager's employee number or name; both resolve to the manager's record.
   const key = (r: any) => String(r.id);
@@ -193,11 +198,10 @@ export function OrgChart() {
 export function Library() {
   const { can } = useApp();
   const nav = useNavigate();
-  const [rows, setRows] = useState<any[] | null>(null);
+  const { rows, error, reload } = useRows('TLB');
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('');
-  useEffect(() => { api.get('/api/records/TLB').then((d) => setRows(d.rows)); }, []);
-  if (!rows) return <Spinner />;
+  if (!rows) return error ? <ErrorState message={error} onRetry={reload} /> : <Spinner />;
   const cats = Object.entries(rows.reduce((m: any, r) => { const c = r.data.category || 'Other'; m[c] = (m[c] || 0) + 1; return m; }, {})).sort((a: any, b: any) => b[1] - a[1]);
   const view = rows.filter((r) => (!cat || (r.data.category || 'Other') === cat) && (!q || JSON.stringify(r.data).toLowerCase().includes(q.toLowerCase())) && r.data.status !== 'Archived');
   return (
@@ -227,15 +231,25 @@ export function Library() {
 }
 
 // ---------- Photo library ----------
-const PHOTO_TYPES = ['Audit', 'Surveillance', 'Quality Walkabout', 'Inspection', 'Training', 'Event', 'Award', 'Special Job', 'Other'];
+// Includes the types used by the imported albums (26-Nov-2026 load) so new uploads can match them.
+const PHOTO_TYPES = ['Audit', 'Surveillance', 'Quality Walkabout', 'Inspection', 'Training', 'Event', 'World Quality Week', 'Award', 'Recognition', 'Client Visit', 'Facility', 'Management Review', 'News', 'Special Job', 'Infographic', 'Other'];
 export function Photos() {
   const { can, toast } = useApp();
-  const [rows, setRows] = useState<any[] | null>(null);
   const [f, setF] = useState({ type: '', won: '', year: '' });
   const [view, setView] = useState<any>(null);
   const [add, setAdd] = useState(false);
-  const load = () => api.get(`/api/stats/photos?${new URLSearchParams(Object.entries(f).filter(([, v]) => v) as any)}`).then(setRows);
-  useEffect(() => { load(); }, [f]);
+  // useSWR ignores late responses for an older filter, so fast typing in WON cannot show stale photos.
+  const { data: rows, error, reload: load } = useSWR<any[]>(`/api/stats/photos?${new URLSearchParams(Object.entries(f).filter(([, v]) => v) as any)}`);
+  const filtered = !!(f.type || f.won || f.year);
+  // Filter choices come from the photos that exist (imported albums use types such as Recognition,
+  // World Quality Week and News, which the fixed upload list did not contain).
+  const { data: all } = useSWR<any[]>('/api/stats/photos?');
+  const typeOpts = useMemo(() => [...new Set([...(all || []).map((p) => p.type || p.register).filter(Boolean)])].sort(), [all]);
+  const yearOpts = useMemo(() => {
+    const ys = new Set((all || []).map((p) => String(p.date || p.uploaded_at || '').slice(0, 4)).filter((y) => /^\d{4}$/.test(y)));
+    ys.add(String(new Date().getFullYear()));
+    return [...ys].sort().reverse();
+  }, [all]);
   return (
     <div>
       <div className="page-head">
@@ -243,21 +257,29 @@ export function Photos() {
         {can('culture', 'create') && <button className="primary" onClick={() => setAdd(true)}>+ Add photos</button>}
       </div>
       <div className="row" style={{ marginBottom: 12 }}>
-        <select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}><option value="">All types</option>{PHOTO_TYPES.map((t) => <option key={t}>{t}</option>)}</select>
-        <input placeholder="WON" style={{ width: 110 }} value={f.won} onChange={(e) => setF({ ...f, won: e.target.value.trim() })} />
-        <select value={f.year} onChange={(e) => setF({ ...f, year: e.target.value })}><option value="">All years</option>{[0, 1, 2, 3, 4].map((i) => <option key={i}>{new Date().getFullYear() - i}</option>)}</select>
+        <select aria-label="Photo type" value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}><option value="">All types</option>{(typeOpts.length ? typeOpts : PHOTO_TYPES).map((t) => <option key={t}>{t}</option>)}</select>
+        <input aria-label="Work order number" placeholder="WON" style={{ width: 110 }} value={f.won} onChange={(e) => setF({ ...f, won: e.target.value.trim() })} />
+        <select aria-label="Year" value={f.year} onChange={(e) => setF({ ...f, year: e.target.value })}><option value="">All years</option>{yearOpts.map((y) => <option key={y}>{y}</option>)}</select>
+        {filtered && <button className="ghost sm" onClick={() => setF({ type: '', won: '', year: '' })}>Clear filters</button>}
       </div>
-      {!rows ? <Spinner /> : !rows.length ? <div className="empty">No photos yet.</div> : (
+      {!rows ? (error ? <ErrorState message={error} onRetry={load} /> : <Spinner />) : !rows.length ? (
+        <div className="card state-card"><div className="state-ic info"><Search size={22} /></div>
+          <b>{filtered ? 'No photos match these filters' : 'No photos yet'}</b>
+          <div className="muted">{filtered ? 'Try another type, year or work order.' : 'Add the first album of audit, inspection or event photos.'}</div>
+          <div className="row" style={{ justifyContent: 'center', marginTop: 6 }}>
+            {filtered ? <button onClick={() => setF({ type: '', won: '', year: '' })}>Clear filters</button> : can('culture', 'create') && <button className="primary" onClick={() => setAdd(true)}>+ Add photos</button>}
+          </div></div>
+      ) : (
         <div className="gallery">
           {rows.map((p) => (
-            <figure key={p.id} onClick={() => setView(p)}>
+            <figure key={p.id} {...pressable(() => setView(p))} aria-label={`Open photo: ${p.caption || p.filename}`}>
               <img loading="lazy" src={fileUrl(p.r2_key)} alt={p.caption || p.filename} />
               <figcaption><b>{p.caption || p.filename}</b><span>{[p.type || p.register, p.won, fmtDate(p.date)].filter(Boolean).join(' · ')}</span></figcaption>
             </figure>
           ))}
         </div>
       )}
-      {view && <div className="overlay center" onClick={() => setView(null)}><div className="lightbox"><img src={fileUrl(view.r2_key)} alt="" /><div className="muted">{view.caption} · {view.type || view.register} · {view.won} · {fmtDate(view.date)}</div></div></div>}
+      {view && <Modal title={view.caption || view.filename || 'Photo'} onClose={() => setView(null)}><img src={fileUrl(view.r2_key)} alt={view.caption || view.filename || ''} style={{ width: '100%', borderRadius: 10, display: 'block' }} /><div className="muted small" style={{ marginTop: 8 }}>{[view.type || view.register, view.won, fmtDate(view.date)].filter(Boolean).join(' · ')}</div></Modal>}
       {add && <AddPhotos onClose={() => setAdd(false)} onDone={() => { setAdd(false); load(); toast('Photos uploaded.'); }} />}
     </div>
   );
@@ -302,15 +324,19 @@ export function Showcase() {
   const ref = useRef<HTMLDivElement>(null);
   const nav = useNavigate();
   const [d, setD] = useState<any>(null);
+  const [err, setErr] = useState('');
+  const [tries, setTries] = useState(0);
   useEffect(() => {
     const y = new Date().getFullYear();
+    setErr('');
     Promise.all([
       api.get(`/api/stats/dashboard?from=${y}-01-01&to=${y}-12-31`),
       api.get('/api/records/INI'), api.get('/api/records/AWD'), api.get('/api/records/SPJ'), api.get('/api/records/EVT'),
       api.get('/api/records/PPL'), api.get('/api/records/PCR'), api.get('/api/documents'), api.get('/api/stats/photos'),
-    ]).then(([dash, ini, awd, spj, evt, ppl, pcr, docs, photos]) => setD({ dash, ini: ini.rows, awd: awd.rows, spj: spj.rows, evt: evt.rows, ppl: ppl.rows, pcr: pcr.rows, docs, photos }));
-  }, []);
-  if (!d) return <Spinner />;
+    ]).then(([dash, ini, awd, spj, evt, ppl, pcr, docs, photos]) => setD({ dash, ini: ini.rows, awd: awd.rows, spj: spj.rows, evt: evt.rows, ppl: ppl.rows, pcr: pcr.rows, docs, photos }))
+      .catch((e) => setErr(e.message || 'Failed to load'));
+  }, [tries]);
+  if (!d) return err ? <ErrorState message={err} onRetry={() => setTries((n) => n + 1)} /> : <Spinner />;
   const k = d.dash.kpi;
   const y = new Date().getFullYear();
   const certs = d.docs.filter((x: any) => /certificate/i.test(x.category) && x.status !== 'Withdrawn');

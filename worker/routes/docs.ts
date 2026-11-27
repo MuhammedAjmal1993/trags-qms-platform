@@ -25,6 +25,12 @@ docRoutes.get('/files', async (c) => {
   else if (area === 'uploads') ok = can(user, 'ingest', 'view');
   else if (area === 'submissions' || area === 'public') ok = true;
   else if (area === 'attachments') ok = can(user, MODULE_OF_REGISTER[key.split('/')[1]] || 'findings', 'view');
+  else {
+    // Files attached to a record under any other prefix (e.g. the imported photo library,
+    // stored as photos/import/...) follow the view permission of that record's register.
+    const att = await c.env.DB.prepare('SELECT register FROM attachments WHERE r2_key = ? LIMIT 1').bind(key).first<{ register: string }>();
+    if (att) ok = can(user, MODULE_OF_REGISTER[att.register] || 'findings', 'view');
+  }
   if (!ok) throw new HttpError(403, 'No access to this file.');
   const obj = await getFile(c.env, key);
   if (!obj) throw new HttpError(404, 'File not found');
