@@ -92,20 +92,49 @@ export function Landing({ signedIn }: { signedIn?: boolean }) {
   const certs = s?.certificates || [];
   const fams = useMemo(() => Array.from(new Set(certs.map((c) => c.family))), [certs]);
   const ticker = certs.map((c) => c.name);
+  // Section links only point at sections that are actually rendered (no dead anchors when data is empty).
+  const kpis = st ? [
+    { icon: ClipboardCheck, c: '#327cff', n: st.audits, l: 'Audits conducted', s: `Internal, project and supplier · ${y}` },
+    { icon: BadgeCheck, c: '#22c55e', n: st.findingsClosed, l: 'Findings closed', s: `Raised in ${y} and verified closed` },
+    { icon: Search, c: '#0ea5e9', n: st.rfis, l: 'RFIs inspected', s: `Request for inspection · ${y}` },
+    { icon: Radiation, c: '#8b5cf6', n: st.films, l: 'Films radiographed', s: `${st.joints.toLocaleString()} joints · ${st.inchDia.toLocaleString()} inch-dia welded` },
+    { icon: GraduationCap, c: '#f59e0b', n: st.trainings, l: 'Training sessions', s: `${st.participants.toLocaleString()} participants trained` },
+    { icon: Trophy, c: '#ec4899', n: st.welderAwards, l: 'Welders recognised', s: 'Welder of the Month programme' },
+    { icon: Users, c: '#14b8a6', n: st.team, l: 'QA/QC professionals', s: 'Engineers, inspectors and coordinators' },
+    { icon: Briefcase, c: '#64748b', n: st.projects, l: 'Work orders covered', s: 'Active in the last 12 months' },
+  ].filter((k) => k.n > 0) : [];
+  const hasPerf = kpis.length > 0 || st?.rfiRejection != null || st?.repairRate != null;
+  const hasRecognition = !!award || welderPics.length > 0;
+  const hasNews = !!s?.news.length;
+  const sections = [
+    hasPerf && { href: '#performance', l: 'Performance' },
+    { href: '#certifications', l: 'Certifications' },
+    { href: '#hubs', l: 'Platform' },
+    hasRecognition && { href: '#recognition', l: 'Recognition' },
+    hasNews && { href: '#news', l: 'News' },
+    gallery.length > 0 && { href: '#gallery', l: 'Gallery' },
+  ].filter(Boolean) as { href: string; l: string }[];
+  useEffect(() => {
+    if (!img) return;
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && setImg(null);
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [img]);
+  const zoom = (p: { id: number; caption: string | null }) => ({
+    role: 'button' as const, tabIndex: 0, 'aria-label': `Enlarge photo${p.caption ? `: ${p.caption}` : ''}`, onClick: () => setImg(p),
+    onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setImg(p); } },
+  });
 
   return (
     <div className="lp">
+      <a className="skip-link" href="#main">Skip to content</a>
       {intro && (
-        <div className="lp-intro"><div className="mark"><Logo size={150} white /><div className="line" /><div className="tag">Quality Assurance · Quality Control</div></div></div>
+        <div className="lp-intro" aria-hidden="true"><div className="mark"><Logo size={150} white /><div className="line" /><div className="tag">Quality Assurance · Quality Control</div></div></div>
       )}
-      <nav className={`lp-nav ${solid ? 'solid' : ''}`}>
-        <a href="#top" className="lbrand"><Logo size={56} white={!solid} /><span className="sep" /><span className="dept">QA/QC<br /><small>Department</small></span></a>
+      <nav className={`lp-nav ${solid ? 'solid' : ''}`} aria-label="Main">
+        <a href="#top" className="lbrand" aria-label="TRAGS QA/QC Department, back to top"><Logo size={56} white={!solid} /><span className="sep" /><span className="dept">QA/QC<br /><small>Department</small></span></a>
         <div className="links">
-          <a className="lk" href="#performance">Performance</a>
-          <a className="lk" href="#certifications">Certifications</a>
-          <a className="lk" href="#recognition">Recognition</a>
-          {!!s?.news.length && <a className="lk" href="#news">News</a>}
-          <a className="lk" href="#gallery">Gallery</a>
+          {sections.map((x) => <a key={x.href} className="lk" href={x.href}>{x.l}</a>)}
           <Link className="btn sm lp-ghost" to="/raise"><Camera size={14} />Raise</Link>
           <Link className="btn primary sm" to={signedIn ? '/' : '/login'}><LogIn size={14} />{signedIn ? 'Open platform' : 'Sign in'}</Link>
         </div>
@@ -132,8 +161,10 @@ export function Landing({ signedIn }: { signedIn?: boolean }) {
             <div className="glass"><div className="gi" style={{ background: '#14b8a6' }}><ClipboardCheck size={18} /></div><div><b><CountUp value={st.findingsTracked} ms={1600} /></b><span>Findings tracked{st.since ? ` since ${st.since}` : ''}</span></div></div>
           </div>
         )}
-        <a href="#performance" className="scroll-cue" aria-label="Scroll"><ChevronDown size={22} /></a>
+        <a href={hasPerf ? '#performance' : '#certifications'} className="scroll-cue" aria-label="Scroll to the next section"><ChevronDown size={22} /></a>
       </header>
+
+      <nav className="lp-jump" aria-label="Page sections">{sections.map((x) => <a key={x.href} href={x.href}>{x.l}</a>)}</nav>
 
       {!!ticker.length && (
         <div className="lp-ticker" aria-hidden>
@@ -141,21 +172,13 @@ export function Landing({ signedIn }: { signedIn?: boolean }) {
         </div>
       )}
 
-      {st && (
+      <main id="main" tabIndex={-1}>
+      {st && hasPerf && (
         <section className="lp-sec" id="performance">
           <div className="head reveal"><div className="eyebrow">Quality in numbers · {y}</div><h2>Measured every week, reviewed every month</h2>
             <p>Figures below are calculated live from the department registers: audits, findings, RFIs, weld radiography and training.</p></div>
           <div className="lp-kpis">
-            {[
-              { icon: ClipboardCheck, c: '#327cff', n: st.audits, l: 'Audits conducted', s: `Internal, project and supplier · ${y}` },
-              { icon: BadgeCheck, c: '#22c55e', n: st.findingsClosed, l: 'Findings closed', s: `Raised in ${y} and verified closed` },
-              { icon: Search, c: '#0ea5e9', n: st.rfis, l: 'RFIs inspected', s: `Request for inspection · ${y}` },
-              { icon: Radiation, c: '#8b5cf6', n: st.films, l: 'Films radiographed', s: `${st.joints.toLocaleString()} joints · ${st.inchDia.toLocaleString()} inch-dia welded` },
-              { icon: GraduationCap, c: '#f59e0b', n: st.trainings, l: 'Training sessions', s: `${st.participants.toLocaleString()} participants trained` },
-              { icon: Trophy, c: '#ec4899', n: st.welderAwards, l: 'Welders recognised', s: 'Welder of the Month programme' },
-              { icon: Users, c: '#14b8a6', n: st.team, l: 'QA/QC professionals', s: 'Engineers, inspectors and coordinators' },
-              { icon: Briefcase, c: '#64748b', n: st.projects, l: 'Work orders covered', s: 'Active in the last 12 months' },
-            ].filter((k) => k.n > 0).map((k, i) => (
+            {kpis.map((k, i) => (
               <div key={k.l} className="lp-kpi reveal" style={{ transitionDelay: `${i * 50}ms` }}>
                 <div className="ki" style={{ background: `${k.c}1a`, color: k.c }}><k.icon size={20} /></div>
                 <div className="n"><CountUp value={k.n} ms={1500} /></div><div className="l">{k.l}</div><div className="s">{k.s}</div>
@@ -186,7 +209,7 @@ export function Landing({ signedIn }: { signedIn?: boolean }) {
               </div>
             ))}
           </div>
-          {scope && <figure className="lp-scope reveal" onClick={() => setImg(scope)}><img src={`/api/public/photo/${scope.id}`} alt="TRAGS certification scope" loading="lazy" /><figcaption>Certification scope</figcaption></figure>}
+          {scope && <figure className="lp-scope reveal" {...zoom(scope)}><img src={`/api/public/photo/${scope.id}`} alt="TRAGS certification scope" loading="lazy" /><figcaption>Certification scope</figcaption></figure>}
         </div>
       </section>
 
@@ -215,20 +238,20 @@ export function Landing({ signedIn }: { signedIn?: boolean }) {
         </div>
       </section>
 
-      {(award || welderPics.length > 0) && (
+      {hasRecognition && (
         <section className="lp-sec lp-gold" id="recognition">
           <div className="head reveal"><div className="eyebrow">Recognition</div><h2>Celebrating quality performance</h2>
             <p>The Quality Performer of the Year award recognises the team with the strongest quality record; the Welder of the Month programme recognises welders for productivity, quality and safe behaviour.</p></div>
           <div className="lp-award">
             {award && (
-              <figure className="poster reveal" onClick={() => setImg(award)}>
+              <figure className="poster reveal" {...zoom(award)}>
                 <img src={`/api/public/photo/${award.id}`} alt={award.caption || ''} loading="lazy" />
               </figure>
             )}
             <div className="col reveal" style={{ gap: 14 }}>
               <div className="lp-awardcard"><Trophy size={28} color="#f5b83d" /><div><b>Quality Performer of the Year 2025</b><span>Presented by the General Manager, Mr. Ivan Morgan, to the Combined Project Team led by Jad Azar, Project Manager.</span></div></div>
               <div className="lp-awardcard"><Award size={28} color="#f5b83d" /><div><b>Welder of the Month</b><span>{st?.welderAwards ? `${st.welderAwards} welders selected so far. ` : ''}Five welders a month are nominated by project leadership and reviewed by QA/QC.</span></div></div>
-              {!!welderPics.length && <div className="lp-mini">{welderPics.map((p) => <img key={p.id} src={`/api/public/photo/${p.id}`} alt={p.caption || ''} loading="lazy" onClick={() => setImg(p)} />)}</div>}
+              {!!welderPics.length && <div className="lp-mini">{welderPics.map((p) => <img key={p.id} src={`/api/public/photo/${p.id}`} alt={p.caption || ''} loading="lazy" {...zoom(p)} />)}</div>}
             </div>
           </div>
         </section>
@@ -252,10 +275,10 @@ export function Landing({ signedIn }: { signedIn?: boolean }) {
       {!!gallery.length && (
         <section className="lp-sec lp-dark" id="gallery">
           <div className="head reveal"><div className="eyebrow">Gallery</div><h2>Quality in action</h2></div>
-          <div className="lp-filters">{types.map((t) => <button key={t} className={gf === t ? 'on' : ''} onClick={() => setGf(t)}>{t}</button>)}</div>
+          <div className="lp-filters" role="group" aria-label="Filter photos">{types.map((t) => <button key={t} className={gf === t ? 'on' : ''} aria-pressed={gf === t} onClick={() => setGf(t)}>{t}</button>)}</div>
           <div className="lp-masonry">
             {shown.map((p) => (
-              <figure key={p.id} onClick={() => setImg(p)}><img src={`/api/public/photo/${p.id}`} alt={p.caption || 'TRAGS QA/QC'} loading="lazy" />{p.caption && <figcaption>{p.caption}</figcaption>}</figure>
+              <figure key={p.id} {...zoom(p)}><img src={`/api/public/photo/${p.id}`} alt={p.caption || 'TRAGS QA/QC'} loading="lazy" />{p.caption && <figcaption>{p.caption}</figcaption>}</figure>
             ))}
           </div>
         </section>
@@ -272,17 +295,18 @@ export function Landing({ signedIn }: { signedIn?: boolean }) {
           {qr && <img src={qr} alt="QR code for the quick-raise form" className="qr hide-sm" />}
         </div>
       </section>
+      </main>
 
       <footer className="lp-foot">
         <div className="cols">
           <div><Logo size={70} white /><p>QA/QC Department<br />Trading and Agency Services Limited Company W.L.L.<br />Doha, State of Qatar</p></div>
           <div><b>Group entities</b><span>Trading and Agency Services (TRAGS)</span><span>Qatar Factory for Gas and Petroleum Equipment</span><span>TRAGS Security Services</span></div>
-          <div><b>Platform</b><Link to={signedIn ? '/' : '/login'}>Sign in</Link><Link to="/raise">Raise an observation</Link><a href="#certifications">Certifications</a><a href="#news">News</a></div>
+          <div><b>Platform</b><Link to={signedIn ? '/' : '/login'}>Sign in</Link><Link to="/raise">Raise an observation</Link><a href="#certifications">Certifications</a>{hasNews && <a href="#news">News</a>}</div>
         </div>
         <div className="base"><span>© {new Date().getFullYear()} TRAGS · QA/QC Department</span><span><Newspaper size={13} /> Internal platform · accounts issued by QA/QC</span></div>
       </footer>
 
-      {img && <div className="overlay center" onClick={() => setImg(null)}><div className="lightbox"><button className="ghost" style={{ position: 'absolute', right: 8, top: 8 }} aria-label="Close"><X size={18} /></button><img src={`/api/public/photo/${img.id}`} alt={img.caption || ''} />{img.caption && <div className="small">{img.caption}</div>}</div></div>}
+      {img && <div className="overlay center" onClick={() => setImg(null)}><div className="lightbox" role="dialog" aria-modal="true" aria-label={img.caption || 'Photo'}><button className="ghost icon lb-close" aria-label="Close photo" autoFocus onClick={() => setImg(null)}><X size={18} /></button><img src={`/api/public/photo/${img.id}`} alt={img.caption || ''} />{img.caption && <div className="small">{img.caption}</div>}</div></div>}
     </div>
   );
 }

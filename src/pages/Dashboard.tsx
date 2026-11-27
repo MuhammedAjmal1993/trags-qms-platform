@@ -4,7 +4,7 @@ import { Target, Camera, Presentation, ClipboardX, AlertTriangle, Clock4, Messag
 import { qs, useSWR } from '../api';
 import { useApp } from '../ctx';
 import { ChartCard, BarChart, LineChart, DonutChart, Ring, TYPE_COLORS, snapshot, exportChartsToPptx } from '../components/Charts';
-import { pct, Spinner, statusChip, Stat, Kpi, CountUp, PageSkeleton } from '../components/ui';
+import { pct, Spinner, statusChip, Stat, Kpi, CountUp, PageSkeleton, ErrorState } from '../components/ui';
 import { MONTHS } from '../../shared/registers';
 import { fmtDate } from '../../shared/logic';
 import { WeldingTab, RfiTab, NfiTab, TrainingTab, FeedbackTab, AwardsTab, TrendTab, AuditSummary } from './DashSections';
@@ -66,13 +66,13 @@ export default function Dashboard() {
   const nav = useNavigate();
   const [sp, setSp] = useSearchParams();
   const tab = LEGACY[sp.get('tab') || ''] || sp.get('tab') || 'overview';
-  const { data: d, loading } = useSWR<any>(`/api/stats/dashboard${qs(f)}`);
+  const { data: d, loading, error, reload } = useSWR<any>(`/api/stats/dashboard${qs(f)}`);
   const { data: home } = useSWR<any>('/api/stats/home');
   const root = useRef<HTMLDivElement>(null);
   const months = useMemo(() => monthsBetween(f.from, f.to), [f.from, f.to]);
   const by = (rows: any[], m: string, k: string) => Number(rows?.find((r) => r.m === m)?.[k] ?? 0);
   const period = `${fmtDate(f.from)} to ${fmtDate(f.to)}`;
-  if (!d) return <PageSkeleton />;
+  if (!d) return error ? <ErrorState message={error} onRetry={reload} /> : <PageSkeleton />;
   const k = d.kpi;
   const fType = (t: string) => months.map((m) => Number(d.findings.byMonth.find((r: any) => r.m === m && r.t === t)?.n ?? 0));
   const wrT = Number(d.targets?.repair_rate ?? 0.015);
@@ -99,7 +99,8 @@ export default function Dashboard() {
           {can('reports', 'export') || can('dashboard', 'export') ? <button className="primary" onClick={() => root.current && exportChartsToPptx(root.current, `TRAGS QA/QC Dashboard · ${tabLabel}`, period)}><Presentation size={15} /> Export to PowerPoint</button> : null}
         </div>
       </div>
-      <div className="tabs no-print">{TABS.map((t) => <button key={t.id} className={tab === t.id ? 'on' : ''} onClick={() => setSp(t.id === 'overview' ? {} : { tab: t.id }, { replace: true })}><t.icon size={14} /> {t.label}</button>)}</div>
+      <div className="tabs no-print" role="tablist" aria-label="Dashboard sections">{TABS.map((t) => <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} onClick={() => setSp(t.id === 'overview' ? {} : { tab: t.id }, { replace: true })}><t.icon size={14} aria-hidden /> {t.label}</button>)}</div>
+      {error && <div className="card row small" role="alert" style={{ marginBottom: 12, borderColor: '#f6c6d0', color: '#9f1239' }}>Showing the last loaded figures: {error} <button className="sm" onClick={reload}>Retry</button></div>}
       <FilterBar {...flt} />
 
       {tab === 'overview' && (

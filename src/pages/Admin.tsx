@@ -91,7 +91,7 @@ function Roles() {
       </tbody></table>
       {edit && (
         <Drawer wide title={edit.id ? `Role: ${edit.name}` : 'New role'} onClose={() => setEdit(null)} footer={<>
-          {edit.id && !edit.is_system && <button className="danger" onClick={async () => { try { await api.del(`/api/admin/roles/${edit.id}`); setEdit(null); load(); } catch (e: any) { toast(e.message, 'err'); } }}>Delete role</button>}
+          {edit.id && !edit.is_system && <button className="danger" onClick={async () => { if (!window.confirm(`Delete the role "${edit.name}"? This cannot be undone.`)) return; try { await api.del(`/api/admin/roles/${edit.id}`); toast('Role deleted.'); setEdit(null); load(); } catch (e: any) { toast(e.message, 'err'); } }}>Delete role</button>}
           <span style={{ flex: 1 }} /><button onClick={() => setEdit(null)}>Cancel</button><button className="primary" onClick={save}>Save</button></>}>
           <div className="form-grid" style={{ marginBottom: 12 }}>
             <label className="f">Name<input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></label>

@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Home as HomeIcon, Settings, Search, Menu, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, KeyRound, Globe, Camera } from 'lucide-react';
 import { useApp } from './ctx';
 import { api, clearCache, useSWR } from './api';
@@ -44,7 +44,7 @@ function Side({ rail, onRail, onNavigate }: { rail: boolean; onRail: () => void;
   const toggle = (id: string) => { const n = { ...open, [id]: !isOpen(id) }; setOpen(n); try { localStorage.setItem('nav', JSON.stringify(n)); } catch { /* ignore */ } };
   const active = (g: typeof NAV[number]) => g.items.some((i) => loc.pathname + loc.search === i.to || loc.pathname === i.to.split('?')[0]);
   return (
-    <aside className="side" onClick={(e) => { if ((e.target as HTMLElement).closest('a.nav')) onNavigate(); }}>
+    <aside className="side" aria-label="Main navigation" onClick={(e) => { if ((e.target as HTMLElement).closest('a.nav')) onNavigate(); }}>
       <div className="brand"><span className="full"><Logo size={60} white /></span><span className="mono"><Monogram size={40} /></span><div><b>QA/QC Department</b><span>Quality Management Platform</span></div></div>
       <NavLink className="nav" to="/" end title="Home"><HomeIcon size={17} /><span className="lbl">Home</span></NavLink>
       {NAV.map((g) => {
@@ -53,7 +53,7 @@ function Side({ rail, onRail, onNavigate }: { rail: boolean; onRail: () => void;
         const o = rail || isOpen(g.id) || active(g);
         return (
           <div key={g.id} className="nav-sec">
-            <button className={`nav-head ${active(g) ? 'on' : ''}`} onClick={() => toggle(g.id)}>
+            <button className={`nav-head ${active(g) ? 'on' : ''}`} onClick={() => toggle(g.id)} aria-expanded={o}>
               <span className="hl"><span className="hdot" style={{ background: g.color }} />{g.label}</span>{o ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
             </button>
             {o && items.map((i) => {
@@ -69,7 +69,7 @@ function Side({ rail, onRail, onNavigate }: { rail: boolean; onRail: () => void;
         );
       })}
       {can('admin') && <div className="nav-sec"><NavLink className="nav" to="/admin" title="Admin panel"><Settings size={17} /><span className="lbl">Admin Panel</span></NavLink></div>}
-      <button className="sm rail-btn hide-sm" onClick={onRail} title={rail ? 'Expand menu' : 'Collapse menu'}>{rail ? <PanelLeftOpen size={15} /> : <><PanelLeftClose size={15} /><span className="lbl">Collapse</span></>}</button>
+      <button className="sm rail-btn hide-sm" onClick={onRail} title={rail ? 'Expand menu' : 'Collapse menu'} aria-label={rail ? 'Expand menu' : 'Collapse menu'}>{rail ? <PanelLeftOpen size={15} /> : <><PanelLeftClose size={15} /><span className="lbl">Collapse</span></>}</button>
     </aside>
   );
 }
@@ -83,6 +83,16 @@ function Shell() {
   const [mob, setMob] = useState(false);
   const [menu, setMenu] = useState(false);
   useEffect(() => { setMob(false); setMenu(false); window.scrollTo(0, 0); }, [loc.pathname]);
+  // The account menu closes on outside click/tap and on Escape (it used to close only on mouse-leave, which never fires on touch screens).
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menu && !mob) return;
+    const down = (e: PointerEvent) => { if (menu && menuRef.current && !menuRef.current.contains(e.target as Node)) setMenu(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { setMenu(false); setMob(false); } };
+    document.addEventListener('pointerdown', down);
+    window.addEventListener('keydown', key);
+    return () => { document.removeEventListener('pointerdown', down); window.removeEventListener('keydown', key); };
+  }, [menu, mob]);
   const toggleRail = () => { setRail(!rail); try { localStorage.setItem('rail', rail ? '0' : '1'); } catch { /* ignore */ } };
   const logout = async () => { await api.post('/api/auth/logout'); clearCache(); await refresh(); nav('/'); };
   const search = (e: React.FormEvent) => {
@@ -94,30 +104,31 @@ function Shell() {
   const initials = (user?.name || '?').split(/\s+/).map((x) => x[0]).slice(0, 2).join('').toUpperCase();
   return (
     <div className={`shell ${rail ? 'rail' : ''} ${mob ? 'mobile-open' : ''}`}>
+      <a className="skip-link" href="#content">Skip to content</a>
       <Side rail={rail} onRail={toggleRail} onNavigate={() => setMob(false)} />
       {mob && <div className="overlay only-sm" style={{ zIndex: 55 }} onClick={() => setMob(false)} />}
       <div className="main">
-        <div className="topbar">
-          <button className="ghost only-sm" onClick={() => setMob(true)} aria-label="Menu"><Menu size={20} /></button>
-          <form onSubmit={search} className="search"><Search size={15} /><input placeholder="Search WON (7 digits), report no. or finding text" value={q} onChange={(e) => setQ(e.target.value)} /></form>
+        <header className="topbar">
+          <button className="ghost icon only-sm" onClick={() => setMob(true)} aria-label="Open menu" aria-expanded={mob}><Menu size={20} /></button>
+          <form onSubmit={search} className="search" role="search"><Search size={15} aria-hidden /><input type="search" aria-label="Search by WON, report number or finding text" placeholder="Search WON, report no. or finding" value={q} onChange={(e) => setQ(e.target.value)} /></form>
           <span className="grow" />
           <a className="btn sm hide-sm" href="/raise" target="_blank" rel="noreferrer"><Camera size={14} /> Quick raise</a>
-          <div style={{ position: 'relative' }}>
-            <button className="ghost" onClick={() => setMenu(!menu)} style={{ padding: 2, gap: 8 }}>
-              <span className="avatar">{initials}</span>
+          <div style={{ position: 'relative' }} ref={menuRef}>
+            <button className="ghost" onClick={() => setMenu(!menu)} style={{ padding: 2, gap: 8 }} aria-haspopup="menu" aria-expanded={menu} aria-label={`Account menu for ${user?.name || 'user'}`}>
+              <span className="avatar" aria-hidden>{initials}</span>
               <span className="hide-sm" style={{ textAlign: 'left', lineHeight: 1.2 }}><b style={{ display: 'block', fontSize: 12.5, color: 'var(--navy)' }}>{user?.name}</b><span className="muted" style={{ fontSize: 11 }}>{user?.role}</span></span>
-              <ChevronDown size={14} />
+              <ChevronDown size={14} aria-hidden />
             </button>
             {menu && (
-              <div className="card" style={{ position: 'absolute', right: 0, top: 46, width: 210, padding: 6, zIndex: 40 }} onMouseLeave={() => setMenu(false)}>
-                <button className="ghost" style={{ width: '100%' }} onClick={() => nav('/welcome')}><Globe size={15} /> Showcase page</button>
-                <button className="ghost" style={{ width: '100%' }} onClick={() => nav('/password')}><KeyRound size={15} /> Change password</button>
-                <button className="ghost" style={{ width: '100%', color: 'var(--red)' }} onClick={logout}><LogOut size={15} /> Sign out</button>
+              <div className="card menu-pop" role="menu" style={{ position: 'absolute', right: 0, top: 46, width: 210, padding: 6, zIndex: 40 }}>
+                <button role="menuitem" className="ghost" style={{ width: '100%' }} onClick={() => nav('/welcome')}><Globe size={15} /> Showcase page</button>
+                <button role="menuitem" className="ghost" style={{ width: '100%' }} onClick={() => nav('/password')}><KeyRound size={15} /> Change password</button>
+                <button role="menuitem" className="ghost" style={{ width: '100%', color: 'var(--red)' }} onClick={logout}><LogOut size={15} /> Sign out</button>
               </div>
             )}
           </div>
-        </div>
-        <div className="content" key={loc.pathname}>
+        </header>
+        <main className="content" id="content" tabIndex={-1} key={loc.pathname}>
           <Suspense fallback={<PageSkeleton />}>
           <Routes>
             <Route path="/" element={<Home />} />
@@ -144,7 +155,7 @@ function Shell() {
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
           </Suspense>
-        </div>
+        </main>
       </div>
     </div>
   );

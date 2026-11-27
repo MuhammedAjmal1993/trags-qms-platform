@@ -18,7 +18,7 @@ Internal QA/QC platform for Trading and Agency Services Limited Company W.L.L. (
 
 ## Commands
 - `npm ci`, `npm run typecheck`, `npm run build`
-- Local: `npx wrangler dev --port 8788` (local D1 under `.wrangler/`). First visit shows the setup page; a local setup code can be inserted with `npx wrangler d1 execute trags-qms-db --local --command "INSERT INTO settings(key,value) VALUES('setup_code_hash', '<sha256 hex of code>')"`.
+- Local: `npx wrangler dev --port 8788` (local D1 under `.wrangler/`). First visit shows the setup page; a local setup code can be inserted with `npx wrangler d1 execute trags-qms-db --local --command "INSERT INTO settings(key,value) VALUES('setup_code_hash', '<base64 of sha256(code)>')"` (the worker compares base64, not hex; see `sha256()` in `worker/lib.ts`). The `ai` binding needs a Cloudflare login under `wrangler dev`; for a fully local run use a copy of `wrangler.jsonc` without the `ai` block (`-c <copy>`), which disables only AI extraction.
 - Trigger the cron locally: `curl "http://localhost:8788/cdn-cgi/handler/scheduled?cron=*+*+*+*+*"`.
 - Never run `wrangler deploy` by hand unless asked; deployment is by push to `main`.
 

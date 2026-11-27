@@ -1,17 +1,53 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent as RKeyboardEvent, type ReactNode } from 'react';
+import { AlertTriangle, RotateCcw, X } from 'lucide-react';
 import type { Column } from '../../shared/registers';
 import { fmtDate } from '../../shared/logic';
 
-export function Drawer({ title, onClose, children, footer, wide }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// Shared dialog behaviour: Escape closes, focus moves into the dialog, Tab stays inside it,
+// and focus returns to the control that opened it.
+const dialogStack: object[] = [];
+function useDialog(onClose: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const me = {};
+    dialogStack.push(me);
+    const prev = document.activeElement as HTMLElement | null;
+    const box = ref.current;
+    if (box && !box.contains(document.activeElement)) (box.querySelector<HTMLElement>('[autofocus]') || box).focus({ preventScroll: true });
+    const k = (e: KeyboardEvent) => {
+      if (dialogStack[dialogStack.length - 1] !== me) return; // only the top-most dialog reacts
+      if (e.key === 'Escape') { close.current(); return; }
+      if (e.key !== 'Tab' || !box) return;
+      const f = [...box.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null);
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === box)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, [onClose]);
+    const body = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', k);
+      dialogStack.splice(dialogStack.indexOf(me), 1);
+      document.body.style.overflow = body;
+      if (prev && document.contains(prev)) prev.focus({ preventScroll: true });
+    };
+  }, []);
+  return ref;
+}
+
+export function Drawer({ title, onClose, children, footer, wide }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
+  const ref = useDialog(onClose);
+  const id = useId();
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="drawer" style={wide ? { width: 'min(1200px,100%)' } : undefined}>
-        <div className="dhead"><h2 style={{ margin: 0 }}>{title}</h2><button className="ghost" onClick={onClose}>✕</button></div>
+      <div ref={ref} className="drawer" role="dialog" aria-modal="true" aria-labelledby={id} tabIndex={-1} style={wide ? { width: 'min(1200px,100%)' } : undefined}>
+        <div className="dhead"><h2 id={id} style={{ margin: 0 }}>{title}</h2><button className="ghost icon" onClick={onClose} aria-label="Close"><X size={18} /></button></div>
         <div className="dbody">{children}</div>
         {footer && <div className="dfoot">{footer}</div>}
       </div>
@@ -20,10 +56,12 @@ export function Drawer({ title, onClose, children, footer, wide }: { title: Reac
 }
 
 export function Modal({ title, onClose, children, footer }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
+  const ref = useDialog(onClose);
+  const id = useId();
   return (
     <div className="overlay center" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <div className="dhead"><h2 style={{ margin: 0 }}>{title}</h2><button className="ghost" onClick={onClose}>✕</button></div>
+      <div ref={ref} className="modal" role="dialog" aria-modal="true" aria-labelledby={id} tabIndex={-1}>
+        <div className="dhead"><h2 id={id} style={{ margin: 0 }}>{title}</h2><button className="ghost icon" onClick={onClose} aria-label="Close"><X size={18} /></button></div>
         <div className="dbody">{children}</div>
         {footer && <div className="dfoot">{footer}</div>}
       </div>
@@ -31,7 +69,28 @@ export function Modal({ title, onClose, children, footer }: { title: ReactNode; 
   );
 }
 
-export function Spinner() { return <span className="spinner" />; }
+export function Spinner({ label = 'Loading' }: { label?: string }) { return <span className="spinner" role="status" aria-label={label} />; }
+
+// Shown when a page's data could not be loaded, instead of an endless loader.
+export function ErrorState({ message, onRetry, action }: { message: string; onRetry?: () => void; action?: ReactNode }) {
+  return (
+    <div className="card state-card" role="alert">
+      <div className="state-ic"><AlertTriangle size={22} /></div>
+      <b>Could not load this page</b>
+      <div className="muted">{message || 'The server did not respond. Check your connection and try again.'}</div>
+      <div className="row" style={{ justifyContent: 'center', marginTop: 6 }}>
+        {onRetry && <button className="primary" onClick={onRetry}><RotateCcw size={15} /> Try again</button>}
+        {action}
+      </div>
+    </div>
+  );
+}
+
+// Keyboard support for clickable non-button elements (rows, cards).
+export const pressable = (fn?: () => void) => fn ? {
+  role: 'button' as const, tabIndex: 0, onClick: fn,
+  onKeyDown: (e: RKeyboardEvent) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); fn(); } },
+} : {};
 
 export function statusChip(s: unknown) {
   const v = String(s ?? '');
@@ -104,7 +163,7 @@ export function CountUp({ value, ms = 900, fmt }: { value: number | null | undef
 
 export function Kpi({ l, v, s, tone, icon, onClick, bar }: { l: string; v: ReactNode; s?: ReactNode; tone?: string; icon?: ReactNode; onClick?: () => void; bar?: number | null }) {
   return (
-    <div className={`kpi ${tone || ''}`} onClick={onClick} style={{ cursor: onClick ? 'pointer' : undefined }}>
+    <div className={`kpi ${tone || ''} ${onClick ? 'clickable' : ''}`} {...pressable(onClick)}>
       {icon && <div className="ic">{icon}</div>}
       <div className="l">{l}</div><div className="v">{v ?? '–'}</div>{s && <div className="s">{s}</div>}
       {bar !== undefined && bar !== null && <div className="bar"><i style={{ width: `${Math.max(0, Math.min(100, bar * 100))}%` }} /></div>}

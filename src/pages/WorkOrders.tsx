@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, useSWR } from '../api';
 import { useApp } from '../ctx';
-import { Drawer, Spinner, statusChip, pct, PageSkeleton } from '../components/ui';
+import { Search } from 'lucide-react';
+import { Drawer, Spinner, statusChip, pct, PageSkeleton, ErrorState } from '../components/ui';
 import { snapshot } from '../components/Charts';
 import { fmtDate } from '../../shared/logic';
 import { readWorkbook, cellValue, exportTable } from '../lib/excel';
@@ -16,7 +17,7 @@ const WO_FIELDS = [
 export function WorkOrders() {
   const { can, toast } = useApp();
   const nav = useNavigate();
-  const { data: d, reload: load } = useSWR<{ workorders: any[]; unregistered: any[] }>('/api/stats/workorders');
+  const { data: d, reload: load, error: loadErr } = useSWR<{ workorders: any[]; unregistered: any[] }>('/api/stats/workorders');
   const [q, setQ] = useState('');
   const [edit, setEdit] = useState<any>(null);
   const rows = useMemo(() => (d?.workorders || []).filter((w) => !q || JSON.stringify(w).toLowerCase().includes(q.toLowerCase())), [d, q]);
@@ -55,7 +56,7 @@ export function WorkOrders() {
   };
   const fileRef = useRef<HTMLInputElement>(null);
 
-  if (!d) return <PageSkeleton />;
+  if (!d) return loadErr ? <ErrorState message={loadErr} onRetry={load} /> : <PageSkeleton />;
   return (
     <div>
       <div className="page-head">
@@ -130,9 +131,17 @@ export function WorkOrderDetail() {
   const nav = useNavigate();
   const { toast } = useApp();
   const [d, setD] = useState<any>(null);
+  const [err, setErr] = useState<{ status?: number; msg: string } | null>(null);
   const [tab, setTab] = useState('');
+  const [tries, setTries] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => { setD(null); api.get(`/api/stats/wo/${won}`).then((x) => { setD(x); setTab(Object.keys(x.records)[0] || ''); }).catch((e) => toast(e.message, 'err')); }, [won, toast]);
+  useEffect(() => {
+    setD(null); setErr(null);
+    api.get(`/api/stats/wo/${won}`).then((x) => { setD(x); setTab(Object.keys(x.records)[0] || ''); }).catch((e) => setErr({ status: e.status, msg: e.message }));
+  }, [won, tries]);
+  if (err) return err.status === 404
+    ? <div className="card state-card"><div className="state-ic info"><Search size={22} /></div><b>No records for WON {won}</b><div className="muted">No work order or register entries use this number yet. Check the 7-digit WON, or browse all projects.</div><div className="row" style={{ justifyContent: 'center', marginTop: 6 }}><button className="primary" onClick={() => nav('/wo')}>All projects</button><button onClick={() => nav(-1)}>Go back</button></div></div>
+    : <ErrorState message={err.msg} onRetry={() => setTries((n) => n + 1)} />;
   if (!d) return <PageSkeleton />;
   const wo = d.workorder || {};
   const h = wo.health_override ? { ...d.health, status: wo.health_override, reasons: [`Manual override (automatic: ${d.health.status})`, ...d.health.reasons] } : d.health;

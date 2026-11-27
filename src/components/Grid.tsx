@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { RegisterConfig } from '../../shared/registers';
 import { computeColumn, rowKey } from '../../shared/logic';
-import { fmtValue, statusChip } from './ui';
+import { fmtValue, statusChip, pressable } from './ui';
 
 export interface Row { id: number; seq: number; data: Record<string, any>; updated_at?: string }
 
@@ -23,43 +23,57 @@ export function Grid({ cfg, rows, onOpen, hidden, globalQ }: { cfg: RegisterConf
     return new Set([...cnt].filter(([, n]) => n > 1).map(([k]) => k));
   }, [rows, cfg]);
 
+  // Column lookup by key (the RFI register has ~25k rows; a linear find per cell made sorting slow).
+  const colMap = useMemo(() => new Map(cfg.columns.map((c) => [c.key, c])), [cfg]);
+  // Search text per row is built once per data load, not on every keystroke.
+  const haystack = useMemo(() => new Map(rows.map((r) => [r.id, JSON.stringify(r.data).toLowerCase()])), [rows]);
+
   const view = useMemo(() => {
     const val = (r: Row, key: string) => {
-      const col = cfg.columns.find((c) => c.key === key);
-      const v = col?.type === 'computed' ? computeColumn(col, r.data) : r.data[key];
-      return v;
+      const col = colMap.get(key);
+      return col?.type === 'computed' ? computeColumn(col, r.data) : r.data[key];
     };
     const q = globalQ.trim().toLowerCase();
+    const active = Object.entries(filters).filter(([, f]) => f).map(([k, f]) => ({ k, f: f.toLowerCase(), raw: f, col: colMap.get(k) }));
     let out = rows.filter((r) => {
-      if (q && !JSON.stringify(r.data).toLowerCase().includes(q)) return false;
-      for (const [k, f] of Object.entries(filters)) {
-        if (!f) continue;
-        const col = cfg.columns.find((c) => c.key === k);
+      if (q && !haystack.get(r.id)!.includes(q)) return false;
+      for (const { k, f, raw, col } of active) {
         const s = fmtValue(col, val(r, k)).toLowerCase();
-        if (f === '(blank)') { if (s) return false; }
-        else if (col?.type === 'select' || col?.role === 'status') { if (s !== f.toLowerCase()) return false; }
-        else if (!s.includes(f.toLowerCase())) return false;
+        if (raw === '(blank)') { if (s) return false; }
+        else if (col?.type === 'select' || col?.role === 'status') { if (s !== f) return false; }
+        else if (!s.includes(f)) return false;
       }
       return true;
     });
     if (sort) {
-      out = [...out].sort((a, b) => {
-        const x = val(a, sort.key), y = val(b, sort.key);
+      const coll = new Intl.Collator(undefined, { numeric: true });
+      const keyed = out.map((r) => ({ r, v: val(r, sort.key) }));
+      keyed.sort((a, b) => {
+        const x = a.v, y = b.v;
         if (x === y) return 0;
         if (x === null || x === undefined || x === '') return 1;
         if (y === null || y === undefined || y === '') return -1;
-        return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true })) * sort.dir;
+        return (typeof x === 'number' && typeof y === 'number' ? x - y : coll.compare(String(x), String(y))) * sort.dir;
       });
+      out = keyed.map((k) => k.r);
     }
     return out;
-  }, [rows, filters, sort, globalQ, cfg]);
+  }, [rows, filters, sort, globalQ, colMap, haystack]);
 
-  const optionsFor = (key: string) => {
-    const col = cfg.columns.find((c) => c.key === key)!;
-    const s = new Set<string>();
-    for (const r of rows) { const v = fmtValue(col, r.data[key]); if (v) s.add(v); }
-    return [...s].sort();
-  };
+  // Dropdown options for select/status columns, computed once per data load.
+  const options = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const c of cfg.columns) {
+      if (c.type !== 'select' && c.role !== 'status') continue;
+      const s = new Set<string>();
+      for (const r of rows) { const v = fmtValue(c, r.data[c.key]); if (v) s.add(v); }
+      m.set(c.key, [...s].sort());
+    }
+    return m;
+  }, [rows, cfg]);
+  const optionsFor = (key: string) => options.get(key) || [];
+  const filtered = Object.values(filters).some(Boolean);
+  const toggleSort = (key: string) => setSort((s) => (s?.key === key ? (s.dir === 1 ? { key, dir: -1 } : null) : { key, dir: 1 }));
 
   return (
     <>
@@ -69,7 +83,9 @@ export function Grid({ cfg, rows, onOpen, hidden, globalQ }: { cfg: RegisterConf
             <tr>
               {cols.map((c, i) => (
                 <th key={c.key} className={i === 0 ? 'sticky' : ''} style={{ minWidth: c.width || (c.type === 'textarea' ? 260 : 90) }}
-                  onClick={() => setSort((s) => (s?.key === c.key ? (s.dir === 1 ? { key: c.key, dir: -1 } : null) : { key: c.key, dir: 1 }))}>
+                  aria-sort={sort?.key === c.key ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}
+                  tabIndex={0} onClick={() => toggleSort(c.key)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSort(c.key); } }}>
                   {c.label}{sort?.key === c.key ? (sort.dir === 1 ? ' ▲' : ' ▼') : ''}
                 </th>
               ))}
@@ -78,12 +94,12 @@ export function Grid({ cfg, rows, onOpen, hidden, globalQ }: { cfg: RegisterConf
               {cols.map((c, i) => (
                 <th key={c.key} className={`filter-row ${i === 0 ? 'sticky' : ''}`}>
                   {c.type === 'select' || c.role === 'status' ? (
-                    <select value={filters[c.key] || ''} onChange={(e) => setFilters({ ...filters, [c.key]: e.target.value })}>
+                    <select aria-label={`Filter ${c.label}`} value={filters[c.key] || ''} onChange={(e) => setFilters({ ...filters, [c.key]: e.target.value })}>
                       <option value="">All</option><option value="(blank)">(blank)</option>
                       {optionsFor(c.key).map((o) => <option key={o}>{o}</option>)}
                     </select>
                   ) : (
-                    <input value={filters[c.key] || ''} placeholder="filter" onChange={(e) => setFilters({ ...filters, [c.key]: e.target.value })} />
+                    <input aria-label={`Filter ${c.label}`} value={filters[c.key] || ''} placeholder="filter" onChange={(e) => setFilters({ ...filters, [c.key]: e.target.value })} />
                   )}
                 </th>
               ))}
@@ -94,7 +110,7 @@ export function Grid({ cfg, rows, onOpen, hidden, globalQ }: { cfg: RegisterConf
               const flags = r.data._flags || {};
               const dup = dupKeys.has(rowKey(cfg, r.data));
               return (
-                <tr key={r.id} onClick={() => onOpen(r)}>
+                <tr key={r.id} {...pressable(() => onOpen(r))}>
                   {cols.map((c, i) => {
                     const v = c.type === 'computed' ? computeColumn(c, r.data) : r.data[c.key];
                     const isKey = cfg.keyFields.includes(c.key);
@@ -110,7 +126,12 @@ export function Grid({ cfg, rows, onOpen, hidden, globalQ }: { cfg: RegisterConf
             })}
           </tbody>
         </table>
-        {!view.length && <div className="empty">No rows match.</div>}
+        {!view.length && (
+          <div className="empty">
+            {!rows.length ? 'No records in this register yet. Use “New record” or Import / upload to add the first one.'
+              : <>No rows match the current filters. {filtered && <button className="sm" style={{ marginLeft: 6 }} onClick={() => setFilters({})}>Clear column filters</button>}</>}
+          </div>
+        )}
       </div>
       <div className="grid-foot">
         <span>{view.length} of {rows.length} rows{dupKeys.size ? <> · <b className="red">{dupKeys.size} duplicate key(s)</b> highlighted</> : null}</span>

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api, fileUrl, qs } from '../api';
 import { useApp } from '../ctx';
-import { Drawer, Spinner, statusChip, Modal, pct, PageSkeleton } from '../components/ui';
+import { Drawer, Spinner, statusChip, Modal, pct, PageSkeleton, ErrorState, Confirm } from '../components/ui';
 import { MONTHS } from '../../shared/registers';
 import { fmtDate } from '../../shared/logic';
 import { objectivesDocx } from '../lib/report';
@@ -17,7 +17,7 @@ export default function Plans() {
   return (
     <div>
       <div className="page-head"><div><h1>Plans &amp; Objectives</h1><div className="muted small">Quality, training and audit plans; yearly quality objectives with GM and QA/QC Manager sign-off.</div></div></div>
-      <div className="tabs"><button className={tab === 'obj' ? 'on' : ''} onClick={() => setTab('obj')}>Quality objectives</button><button className={tab === 'plans' ? 'on' : ''} onClick={() => setTab('plans')}>Quality, training &amp; audit plans</button></div>
+      <div className="tabs" role="tablist"><button role="tab" aria-selected={tab === 'obj'} className={tab === 'obj' ? 'on' : ''} onClick={() => setTab('obj')}>Quality objectives</button><button role="tab" aria-selected={tab === 'plans'} className={tab === 'plans' ? 'on' : ''} onClick={() => setTab('plans')}>Quality, training &amp; audit plans</button></div>
       {tab === 'obj' ? <Objectives /> : <PlanDocs />}
     </div>
   );
@@ -30,12 +30,14 @@ function Objectives() {
   const [edit, setEdit] = useState<any>(null);
   const [sign, setSign] = useState<string | null>(null);
   const [comment, setComment] = useState('');
-  const load = () => api.get(`/api/objectives?year=${year}`).then(setD);
+  const [err, setErr] = useState('');
+  const load = () => { setErr(''); return api.get(`/api/objectives?year=${year}`).then(setD).catch((e) => setErr(e.message || 'Failed to load')); };
   useEffect(() => { load(); }, [year]);
   const signed = (d?.signoffs || []).filter((s: any) => s.role !== 'SIGNED_COPY');
   const locked = signed.length > 0;
 
-  const fillFromData = async () => {
+  const fillFromData = () => fillFromDataInner().catch((e: any) => toast(e.message || 'Could not fill from platform data.', 'err'));
+  const fillFromDataInner = async () => {
     const dash = await api.get(`/api/stats/dashboard${qs({ from: `${year}-01-01`, to: `${year}-12-31` })}`);
     const m = (k: string, i: number) => {
       const ym = `${year}-${String(i + 1).padStart(2, '0')}`;
@@ -61,7 +63,7 @@ function Objectives() {
     load();
   };
 
-  if (!d) return <PageSkeleton />;
+  if (!d) return err ? <ErrorState message={err} onRetry={load} /> : <PageSkeleton />;
   return (
     <div>
       <div className="row" style={{ marginBottom: 10 }}>
@@ -91,7 +93,7 @@ function Objectives() {
               <div key={role} className="card">
                 <div className="muted small">{label}</div>
                 {s ? <><div style={{ fontSize: 16, fontWeight: 600, marginTop: 6 }}>{s.name}</div><div className="small">Signed electronically {s.signed_at} UTC{s.comment ? ` · ${s.comment}` : ''}</div>
-                  {(s.user_id === user?.id || can('admin', 'edit')) && <button className="sm no-print" style={{ marginTop: 6 }} onClick={async () => { await api.del(`/api/objectives/${year}/signoff/${s.id}`); load(); }}>Withdraw</button>}</>
+                  {(s.user_id === user?.id || can('admin', 'edit')) && <button className="sm no-print" style={{ marginTop: 6 }} onClick={async () => { if (!window.confirm(`Withdraw the sign-off by ${s.name}? The objectives unlock for editing.`)) return; try { await api.del(`/api/objectives/${year}/signoff/${s.id}`); toast('Sign-off withdrawn.'); load(); } catch (e: any) { toast(e.message, 'err'); } }}>Withdraw</button>}</>
                   : <><div className="muted" style={{ marginTop: 6 }}>Not signed</div>{can('plans', 'approve') && <button className="sm primary no-print" style={{ marginTop: 6 }} onClick={() => setSign(role)}>Sign as {label}</button>}</>}
               </div>
             );
@@ -117,12 +119,19 @@ function Objectives() {
 function ObjectiveEditor({ o, onClose, onSaved }: { o: any; onClose: () => void; onSaved: () => void }) {
   const { toast, can } = useApp();
   const [v, setV] = useState<any>({ ...o, monthly: { ...(o.monthly || {}) } });
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [busy, setBusy] = useState(false);
   const save = async () => {
     if (!v.objective) return toast('Objective text is required.', 'err');
-    try { v.id ? await api.put(`/api/objectives/${v.id}`, v) : await api.post('/api/objectives', v); onSaved(); } catch (e: any) { toast(e.message, 'err'); }
+    setBusy(true);
+    try { v.id ? await api.put(`/api/objectives/${v.id}`, v) : await api.post('/api/objectives', v); onSaved(); } catch (e: any) { toast(e.message, 'err'); } finally { setBusy(false); }
+  };
+  const remove = async () => {
+    try { await api.del(`/api/objectives/${v.id}`); toast('Objective deleted.'); onSaved(); } catch (e: any) { toast(e.message, 'err'); } finally { setConfirmDel(false); }
   };
   return (
-    <Drawer title={v.id ? `Objective ${v.ref || ''}` : 'New objective'} onClose={onClose} footer={<>{v.id && can('plans', 'delete') && <button className="danger" onClick={async () => { await api.del(`/api/objectives/${v.id}`); onSaved(); }}>Delete</button>}<span style={{ flex: 1 }} /><button onClick={onClose}>Cancel</button><button className="primary" onClick={save}>Save</button></>}>
+    <>
+    <Drawer title={v.id ? `Objective ${v.ref || ''}` : 'New objective'} onClose={onClose} footer={<>{v.id && can('plans', 'delete') && <button className="danger" onClick={() => setConfirmDel(true)}>Delete</button>}<span style={{ flex: 1 }} /><button onClick={onClose}>Cancel</button><button className="primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button></>}>
       <div className="form-grid">
         <label className="f">Ref<input value={v.ref || ''} onChange={(e) => setV({ ...v, ref: e.target.value })} /></label>
         <label className="f full">Objective<textarea value={v.objective || ''} onChange={(e) => setV({ ...v, objective: e.target.value })} /></label>
@@ -140,6 +149,8 @@ function ObjectiveEditor({ o, onClose, onSaved }: { o: any; onClose: () => void;
       <h3 style={{ marginTop: 12 }}>Monthly actuals</h3>
       <div className="form-grid">{MONTHS.map((m) => <label key={m} className="f">{m}<input value={v.monthly[m] ?? ''} onChange={(e) => setV({ ...v, monthly: { ...v.monthly, [m]: e.target.value } })} /></label>)}</div>
     </Drawer>
+    {confirmDel && <Confirm danger yes="Delete" text={<>Delete objective <b>{v.ref || v.objective}</b>? This cannot be undone.</>} onYes={remove} onNo={() => setConfirmDel(false)} />}
+    </>
   );
 }
 
@@ -149,8 +160,13 @@ function PlanDocs() {
   const [rows, setRows] = useState<any[] | null>(null);
   const [add, setAdd] = useState<any>(null);
   const [file, setFile] = useState<File | null>(null);
-  const load = () => api.get('/api/plans').then(setRows);
+  const [err, setErr] = useState('');
+  const [del, setDel] = useState<any>(null);
+  const load = () => { setErr(''); return api.get('/api/plans').then(setRows).catch((e) => setErr(e.message || 'Failed to load')); };
   useEffect(() => { load(); }, []);
+  const remove = async (p: any) => {
+    try { await api.del(`/api/plans/${p.id}`); toast('Plan document removed.'); load(); } catch (e: any) { toast(e.message, 'err'); } finally { setDel(null); }
+  };
   const save = async () => {
     const fd = new FormData();
     for (const [k, v] of Object.entries(add)) if (v) fd.append(k, String(v));
@@ -165,11 +181,14 @@ function PlanDocs() {
         <div className="card"><h3>Training plan {y}</h3><div className="muted small">Live from the Training Register (planned vs conducted).</div><button style={{ marginTop: 8 }} onClick={() => nav(`/r/TRN?year=${y}`)}>Open training plan</button></div>
         <div className="card"><h3>Quality plans</h3><div className="muted small">Project quality plans (PQP) and the QMS quality plan, controlled below.</div>{can('plans', 'create') && <button style={{ marginTop: 8 }} className="primary" onClick={() => setAdd({ type: 'Quality Plan', year: y, status: 'Approved' })}>+ Add plan document</button>}</div>
       </div>
-      {!rows ? <Spinner /> : (
-        <table className="plain"><thead><tr><th>Type</th><th>Year</th><th>Title</th><th>WON</th><th>Doc No.</th><th>Rev</th><th>Status</th><th>File</th><th /></tr></thead><tbody>
-          {rows.map((p) => <tr key={p.id}><td>{p.type}</td><td>{p.year}</td><td>{p.title}</td><td>{p.won && <a href={`/wo/${p.won}`}>{p.won}</a>}</td><td>{p.doc_no}</td><td>{p.rev}</td><td>{statusChip(p.status)}</td>
-            <td>{p.r2_key && <a href={fileUrl(p.r2_key)} target="_blank">{p.filename}</a>}</td><td>{can('plans', 'delete') && <button className="sm danger" onClick={async () => { await api.del(`/api/plans/${p.id}`); load(); }}>Remove</button>}</td></tr>)}
-        </tbody></table>
+      {del && <Confirm danger yes="Remove" text={<>Remove plan document <b>{del.title}</b>{del.doc_no ? ` (${del.doc_no})` : ''}? This cannot be undone.</>} onYes={() => remove(del)} onNo={() => setDel(null)} />}
+      {!rows ? (err ? <ErrorState message={err} onRetry={load} /> : <Spinner />) : !rows.length ? (
+        <div className="card empty">No plan documents yet.{can('plans', 'create') ? ' Use “+ Add plan document” to upload the first quality plan.' : ''}</div>
+      ) : (
+        <div className="card" style={{ padding: 0 }}><table className="plain"><thead><tr><th>Type</th><th>Year</th><th>Title</th><th>WON</th><th>Doc No.</th><th>Rev</th><th>Status</th><th>File</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>
+          {rows.map((p) => <tr key={p.id}><td>{p.type}</td><td>{p.year}</td><td>{p.title}</td><td>{p.won && <Link to={`/wo/${p.won}`}>{p.won}</Link>}</td><td>{p.doc_no}</td><td>{p.rev}</td><td>{statusChip(p.status)}</td>
+            <td>{p.r2_key && <a href={fileUrl(p.r2_key)} target="_blank" rel="noreferrer">{p.filename}</a>}</td><td>{can('plans', 'delete') && <button className="sm danger" onClick={() => setDel(p)}>Remove</button>}</td></tr>)}
+        </tbody></table></div>
       )}
       {add && (
         <Drawer title="Add plan document" onClose={() => setAdd(null)} footer={<><button onClick={() => setAdd(null)}>Cancel</button><button className="primary" onClick={save}>Save</button></>}>

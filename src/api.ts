@@ -54,12 +54,25 @@ export const putCache = writeCache;
 
 export function clearCache() {
   mem.clear();
+  inflight.clear();
   try { for (const k of Object.keys(sessionStorage)) if (k.startsWith('swr:')) sessionStorage.removeItem(k); } catch { /* ignore */ }
 }
 // Any write invalidates cached reads (the server bumps its data version on every write too).
 for (const m of ['post', 'put', 'del', 'form'] as const) {
   const orig = (api as any)[m];
   (api as any)[m] = (...a: unknown[]) => orig(...a).then((r: unknown) => { if (!String(a[0]).startsWith('/api/public')) clearCache(); return r; });
+}
+
+// Components that mount together (sidebar badge, page, filter bar) often ask for the same URL at once:
+// share one request per URL while it is in flight.
+const inflight = new Map<string, Promise<unknown>>();
+function getShared<T>(url: string): Promise<T> {
+  let p = inflight.get(url) as Promise<T> | undefined;
+  if (!p) {
+    p = api.get<T>(url).finally(() => inflight.delete(url));
+    inflight.set(url, p);
+  }
+  return p;
 }
 
 export function useSWR<T = any>(url: string | null, opts: { refreshMs?: number } = {}) {
@@ -72,7 +85,7 @@ export function useSWR<T = any>(url: string | null, opts: { refreshMs?: number }
     cur.current = url;
     setLoading(true);
     try {
-      const v = await api.get<T>(url);
+      const v = await getShared<T>(url);
       if (cur.current === url) { setData(v); setError(''); writeCache(url, v); }
     } catch (e: any) { if (cur.current === url) setError(e.message || 'Failed to load'); }
     finally { if (cur.current === url) setLoading(false); }

@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Upload, AlertTriangle, Eye, FileBarChart, FileSpreadsheet, ClipboardX, Clock4, Inbox, GraduationCap, ListChecks, Award, ArrowRight, LayoutDashboard, CalendarClock } from 'lucide-react';
 import { api, useSWR } from '../api';
 import { useApp } from '../ctx';
-import { statusChip, pct, Stat, CountUp, PageSkeleton } from '../components/ui';
+import { statusChip, pct, Stat, CountUp, PageSkeleton, ErrorState, pressable } from '../components/ui';
 import { fmtDate } from '../../shared/logic';
 import { exportRegister } from '../lib/excel';
 import type { RegisterConfig } from '../../shared/registers';
@@ -13,16 +13,19 @@ const days = (d: string) => Math.round((new Date(d + 'T00:00:00Z').getTime() - D
 export default function Home() {
   const { user, can, registers, toast } = useApp();
   const nav = useNavigate();
-  const { data: d, error } = useSWR<any>('/api/stats/home');
+  const { data: d, error, reload } = useSWR<any>('/api/stats/home');
   const [exp, setExp] = useState('');
   const doExport = async (code: string) => {
     const cfg = registers.find((r) => r.code === code) as RegisterConfig;
     if (!cfg) return;
-    const rows = await api.get(`/api/records/${code}`);
-    await exportRegister(cfg, rows.rows);
-    setExp('');
+    try {
+      const rows = await api.get(`/api/records/${code}`);
+      await exportRegister(cfg, rows.rows);
+      toast(`${cfg.name} exported.`);
+    } catch (e: any) { toast(e.message || 'Export failed.', 'err'); }
+    finally { setExp(''); }
   };
-  if (!d) return error ? <div className="card empty red">{error}</div> : <PageSkeleton />;
+  if (!d) return error ? <ErrorState message={error} onRetry={reload} /> : <PageSkeleton />;
   const P = d.pending;
   const hour = new Date().getHours();
   const today = new Date();
@@ -60,7 +63,7 @@ export default function Home() {
         {can('findings', 'create') && <button className="qbtn" onClick={go('/r/FND?new=NCR')}><span className="qi" style={{ background: 'linear-gradient(135deg,#e11d48,#fb7185)' }}><AlertTriangle size={18} /></span>New NCR</button>}
         {can('findings', 'create') && <button className="qbtn" onClick={go('/r/FND?new=OBSERVATION')}><span className="qi" style={{ background: 'linear-gradient(135deg,#d97706,#fbbf24)' }}><Eye size={18} /></span>New Observation</button>}
         {can('reports', 'view') && <button className="qbtn" onClick={go('/reports')}><span className="qi" style={{ background: 'linear-gradient(135deg,#6d28d9,#a78bfa)' }}><FileBarChart size={18} /></span>Monthly Report</button>}
-        <div className="qbtn sel"><span className="qi" style={{ background: 'linear-gradient(135deg,#047857,#34d399)' }}><FileSpreadsheet size={18} /></span><select value={exp} onChange={(e) => { setExp(e.target.value); if (e.target.value) doExport(e.target.value); }}><option value="">Export Excel…</option>{registers.map((r) => <option key={r.code} value={r.code}>{r.name}</option>)}</select></div>
+        <div className="qbtn sel"><span className="qi" style={{ background: 'linear-gradient(135deg,#047857,#34d399)' }}><FileSpreadsheet size={18} /></span><select aria-label="Export a register to Excel" disabled={!!exp} value={exp} onChange={(e) => { setExp(e.target.value); if (e.target.value) doExport(e.target.value); }}><option value="">Export Excel…</option>{registers.map((r) => <option key={r.code} value={r.code}>{r.name}</option>)}</select></div>
       </div>
 
       <div className="cards wide">
@@ -81,11 +84,11 @@ export default function Home() {
         </Panel>
       </div>
 
-      <div className="section-title"><h2>Project health</h2><div className="row small"><span className="health"><span className="dot Red" />{d.projects.filter((p: any) => p.status === 'Red').length}</span><span className="health"><span className="dot Amber" />{d.projects.filter((p: any) => p.status === 'Amber').length}</span><span className="health"><span className="dot Green" />{d.projects.filter((p: any) => p.status === 'Green').length}</span><a href="/wo">All projects →</a></div></div>
+      <div className="section-title"><h2>Project health</h2><div className="row small"><span className="health"><span className="dot Red" />{d.projects.filter((p: any) => p.status === 'Red').length}</span><span className="health"><span className="dot Amber" />{d.projects.filter((p: any) => p.status === 'Amber').length}</span><span className="health"><span className="dot Green" />{d.projects.filter((p: any) => p.status === 'Green').length}</span><Link to="/wo">All projects →</Link></div></div>
       <div className="grid-wrap" style={{ maxHeight: 420 }}>
         <table className="grid"><thead><tr><th>Health</th><th>WON</th><th>Client</th><th>Project</th><th>Open findings</th><th>Open NCR</th><th>Repair rate (90 d)</th><th>Why</th><th>Last activity</th></tr></thead>
           <tbody>{d.projects.map((p: any) => (
-            <tr key={p.won} onClick={() => nav(`/wo/${p.won}`)}>
+            <tr key={p.won} {...pressable(() => nav(`/wo/${p.won}`))} aria-label={`Open work order ${p.won}`}>
               <td><span className="health"><span className={`dot ${p.status}`} /> {p.status}</span></td><td><b>{p.won}</b></td><td>{p.client}</td><td><div className="clip">{p.project_no ? `${p.project_no} · ` : ''}{p.title}</div></td>
               <td className="num">{p.open || ''}</td><td className={`num ${p.ncr ? 'flag' : ''}`}>{p.ncr || ''}</td><td className="num">{p.repairRate === null ? '' : pct(p.repairRate, 2)}</td><td className="small">{p.reasons.join('; ')}</td><td>{fmtDate(p.last)}</td>
             </tr>))}</tbody></table>
@@ -96,7 +99,7 @@ export default function Home() {
 }
 
 function Panel({ title, link, icon, children }: { title: string; link?: string; icon?: React.ReactNode; children: React.ReactNode }) {
-  return <div className="card"><div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}><h2 style={{ margin: 0, display: 'flex', gap: 8, alignItems: 'center' }}>{icon}{title}</h2>{link && <a href={link} className="small">Open →</a>}</div>{children}</div>;
+  return <div className="card"><div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}><h2 style={{ margin: 0, display: 'flex', gap: 8, alignItems: 'center' }}>{icon}{title}</h2>{link && <Link to={link} className="small" aria-label={`Open ${title.toLowerCase()}`}>Open →</Link>}</div>{children}</div>;
 }
 function List({ items, empty }: { items: { k: string; t: string; s?: string; b?: React.ReactNode; go?: string }[]; empty: string }) {
   const nav = useNavigate();
@@ -104,7 +107,7 @@ function List({ items, empty }: { items: { k: string; t: string; s?: string; b?:
   return (
     <div className="list">
       {items.slice(0, 18).map((i) => (
-        <div key={i.k} className="li" onClick={() => i.go && nav(i.go)}>
+        <div key={i.k} className="li" {...pressable(i.go ? () => nav(i.go!) : undefined)}>
           <div><div className="li-t">{i.t}</div>{i.s && <div className="muted small">{i.s}</div>}</div><div>{i.b}</div>
         </div>
       ))}
